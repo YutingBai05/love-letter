@@ -1,0 +1,18 @@
+{
+  "name": "Love Letter",
+  "short_name": "Love Letter",
+  "description": "两个人的私密信件应用",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FFF8F0",
+  "theme_color": "#C4727F",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
