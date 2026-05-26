@@ -194,7 +194,10 @@ export async function saveAIAnalysis(qid: string, aiAnalysis: string) {
 
 export async function getAnsweredQAHistory(): Promise<QAAnswer[]> {
   const answers = await getAnswers()
-  return answers.filter((a) => a.myAnswer && a.partnerAnswer)
+  console.log('[QA] All answers:', answers.length)
+  const completed = answers.filter((a) => a.myAnswer && a.partnerAnswer)
+  console.log('[QA] Completed (both answered):', completed.length)
+  return completed
 }
 
 // ===== Helpers =====

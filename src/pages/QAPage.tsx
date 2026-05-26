@@ -43,6 +43,7 @@ export function QAPage() {
 
   const refreshData = useCallback(async () => {
     const [qs, cats, hist] = await Promise.all([getQuestions(), getCategories(), getAnsweredQAHistory()])
+    console.log('[QA] Questions:', qs.length, 'Categories:', cats, 'History:', hist.length)
     setQuestions(qs)
     setCategories(cats)
     setHistory(hist)
