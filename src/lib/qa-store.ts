@@ -2,8 +2,59 @@ import { supabase } from './supabase'
 import type { QAQuestion, QAAnswer } from './types'
 import { getSetting, setSetting } from './settings-store'
 
-// ===== AI Settings (stored in Supabase settings table) =====
+const REST_URL = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1`
+const REST_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
 
+function headers(extra?: Record<string, string>) {
+  return {
+    apikey: REST_KEY,
+    Authorization: `Bearer ${REST_KEY}`,
+    'Content-Type': 'application/json',
+    ...extra,
+  }
+}
+
+async function restGet(path: string) {
+  const resp = await fetch(`${REST_URL}${path}`, {
+    headers: headers(),
+    signal: AbortSignal.timeout(8000),
+  })
+  if (!resp.ok) throw new Error(`REST ${resp.status}`)
+  return resp.json()
+}
+
+async function restPost(path: string, body: any) {
+  const resp = await fetch(`${REST_URL}${path}`, {
+    method: 'POST',
+    headers: headers(body ? { Prefer: 'return=representation' } : {}),
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(8000),
+  })
+  if (!resp.ok) throw new Error(`REST ${resp.status}`)
+  if (resp.status === 201) return resp.json()
+  return null
+}
+
+async function restPatch(path: string, body: any) {
+  const resp = await fetch(`${REST_URL}${path}`, {
+    method: 'PATCH',
+    headers: headers(),
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(8000),
+  })
+  if (!resp.ok) throw new Error(`REST ${resp.status}`)
+}
+
+async function restDelete(path: string) {
+  const resp = await fetch(`${REST_URL}${path}`, {
+    method: 'DELETE',
+    headers: headers(),
+    signal: AbortSignal.timeout(8000),
+  })
+  if (!resp.ok) throw new Error(`REST ${resp.status}`)
+}
+
+// ===== AI Settings =====
 export type AIProvider = 'openai' | 'deepseek' | 'gemini'
 
 const PROVIDER_DEFAULTS: Record<AIProvider, { model: string; endpoint: string }> = {
@@ -12,42 +63,18 @@ const PROVIDER_DEFAULTS: Record<AIProvider, { model: string; endpoint: string }>
   gemini: { model: 'gemini-2.0-flash', endpoint: 'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent' },
 }
 
-const PROVIDER_LABELS: Record<AIProvider, string> = {
-  openai: 'OpenAI', deepseek: 'DeepSeek', gemini: 'Gemini',
-}
+const PROVIDER_LABELS: Record<AIProvider, string> = { openai: 'OpenAI', deepseek: 'DeepSeek', gemini: 'Gemini' }
 
-export function getProviderLabel(provider: AIProvider): string {
-  return PROVIDER_LABELS[provider]
-}
-
-export function getAIKey(provider: AIProvider): string {
-  return getSetting(`ai_key_${provider}`)
-}
-
-export function setAIKey(provider: AIProvider, key: string) {
-  setSetting(`ai_key_${provider}`, key)
-}
-
-export function getAIModel(provider: AIProvider): string {
-  return getSetting(`ai_model_${provider}`) || PROVIDER_DEFAULTS[provider].model
-}
-
-export function setAIModel(provider: AIProvider, model: string) {
-  setSetting(`ai_model_${provider}`, model)
-}
-
-export function getAIEndpoint(provider: AIProvider, model?: string): string {
-  const m = model || getAIModel(provider)
-  return PROVIDER_DEFAULTS[provider].endpoint.replace('{model}', m)
-}
-
-export function getConfiguredProviders(): AIProvider[] {
-  return (['openai', 'deepseek', 'gemini'] as AIProvider[]).filter((p) => !!getAIKey(p))
-}
+export function getProviderLabel(p: AIProvider) { return PROVIDER_LABELS[p] }
+export function getAIKey(p: AIProvider) { return getSetting(`ai_key_${p}`) }
+export function setAIKey(p: AIProvider, k: string) { setSetting(`ai_key_${p}`, k) }
+export function getAIModel(p: AIProvider) { return getSetting(`ai_model_${p}`) || PROVIDER_DEFAULTS[p].model }
+export function setAIModel(p: AIProvider, m: string) { setSetting(`ai_model_${p}`, m) }
+export function getAIEndpoint(p: AIProvider, m?: string) { return PROVIDER_DEFAULTS[p].endpoint.replace('{model}', m || getAIModel(p)) }
+export function getConfiguredProviders(): AIProvider[] { return (['openai', 'deepseek', 'gemini'] as AIProvider[]).filter((p) => !!getAIKey(p)) }
 
 // ===== Preset questions =====
-
-const PRESET_QUESTIONS: Omit<QAQuestion, 'id'>[] = [
+const PRESET_QUESTIONS = [
   { category: '关于我们', question: '我们第一次见面时，对方做了什么让你印象深刻的事？' },
   { category: '关于我们', question: '你觉得我们的关系中最珍贵的部分是什么？' },
   { category: '关于我们', question: '哪一刻让你觉得"就是这个人了"？' },
@@ -71,119 +98,98 @@ const PRESET_QUESTIONS: Omit<QAQuestion, 'id'>[] = [
 ]
 
 // ===== Questions =====
-
 export async function seedPresetQuestions() {
-  const { data: session } = await supabase.auth.getSession()
-  const userId = session.session?.user?.id
-  if (!userId) return
+  const { data: session } = await getSessionData()
+  if (!session?.user?.id) return
+  try {
+    const existing = await restGet('/qa_questions?select=id&limit=1')
+    if (existing?.length > 0) return
+  } catch { return }
 
-  const { data: existing } = await supabase.from('qa_questions').select('id').limit(1)
-  if (existing && existing.length > 0) return
-
-  const toInsert = PRESET_QUESTIONS.map((q) => ({
-    category: q.category,
-    question: q.question,
-    created_by: userId,
-  }))
-
-  await supabase.from('qa_questions').insert(toInsert)
+  for (const q of PRESET_QUESTIONS) {
+    try {
+      await restPost('/qa_questions', { category: q.category, question: q.question, created_by: session.user.id })
+    } catch {}
+  }
 }
 
 export async function getQuestions(): Promise<QAQuestion[]> {
-  const { data } = await supabase.from('qa_questions').select('*').order('created_at', { ascending: true })
-  return (data || []).map((q) => ({ id: q.id, category: q.category, question: q.question }))
+  try {
+    const data = await restGet('/qa_questions?select=*&order=created_at.asc')
+    return (data || []).map((q: any) => ({ id: q.id, category: q.category, question: q.question }))
+  } catch { return [] }
 }
 
 export async function getCategories(): Promise<string[]> {
-  const questions = await getQuestions()
-  return [...new Set(questions.map((q) => q.category))].sort()
+  const qs = await getQuestions()
+  return [...new Set(qs.map((q) => q.category))].sort()
 }
 
-export async function addQuestion(category: string, question: string): Promise<QAQuestion> {
-  const { data: session } = await supabase.auth.getSession()
-  const userId = session.session?.user?.id
-  if (!userId) throw new Error('Not logged in')
-
-  const { data, error } = await supabase.from('qa_questions').insert({
-    category, question, created_by: userId,
-  }).select().single()
-
-  if (error) throw error
-  return { id: data.id, category: data.category, question: data.question }
+export async function addQuestion(cat: string, question: string): Promise<QAQuestion> {
+  const { data: session } = await getSessionData()
+  if (!session?.user?.id) throw new Error('Not logged in')
+  const data = await restPost('/qa_questions', { category: cat, question, created_by: session.user.id })
+  return { id: data[0].id, category: cat, question }
 }
 
 export async function deleteQuestion(id: string) {
-  await supabase.from('qa_questions').delete().eq('id', id)
+  await restDelete(`/qa_questions?id=eq.${id}`)
 }
 
 export async function importQuestions(items: { category: string; question: string }[]): Promise<number> {
-  const { data: session } = await supabase.auth.getSession()
-  const userId = session.session?.user?.id
-  if (!userId) return 0
-
+  const { data: session } = await getSessionData()
+  if (!session?.user?.id) return 0
   const existing = await getQuestions()
   let added = 0
   for (const item of items) {
     if (!item.category || !item.question) continue
-    const exists = existing.some((q) => q.category === item.category && q.question === item.question)
-    if (!exists) {
-      await supabase.from('qa_questions').insert({
-        category: item.category, question: item.question, created_by: userId,
-      })
-      added++
+    if (!existing.some((q) => q.category === item.category && q.question === item.question)) {
+      try { await restPost('/qa_questions', { category: item.category, question: item.question, created_by: session.user.id }); added++ } catch {}
     }
   }
   return added
 }
 
 // ===== Answers =====
-
 export async function getAnswers(): Promise<QAAnswer[]> {
-  const { data } = await supabase.from('qa_answers').select('*').order('created_at', { ascending: false })
-  return (data || []).map(mapAnswer)
+  try {
+    const data = await restGet('/qa_answers?select=*&order=created_at.desc')
+    return (data || []).map(mapAnswer)
+  } catch { return [] }
 }
 
-export async function submitMyAnswer(questionId: string, myAnswer: string, myNickname: string): Promise<QAAnswer> {
-  // Check if answer exists
-  const { data: existing } = await supabase.from('qa_answers').select('*').eq('question_id', questionId).maybeSingle()
-
-  if (existing) {
-    const { data, error } = await supabase.from('qa_answers').update({
-      my_answer: myAnswer,
-      my_nickname: myNickname,
-    }).eq('id', existing.id).select().single()
-    if (error) throw error
-    return mapAnswer(data)
+export async function submitMyAnswer(qid: string, myAnswer: string, myNickname: string): Promise<QAAnswer> {
+  const existing = await restGet(`/qa_answers?select=id&question_id=eq.${qid}`)
+  if (existing?.length > 0) {
+    const id = existing[0].id
+    await restPatch(`/qa_answers?id=eq.${id}`, { my_answer: myAnswer, my_nickname: myNickname })
+    const updated = await restGet(`/qa_answers?id=eq.${id}`)
+    return mapAnswer(updated[0])
   }
-
-  // Get question info
-  const { data: question } = await supabase.from('qa_questions').select('*').eq('id', questionId).single()
-
-  const { data, error } = await supabase.from('qa_answers').insert({
-    question_id: questionId,
-    question: question?.question || '',
-    category: question?.category || '',
-    my_answer: myAnswer,
-    my_nickname: myNickname,
-  }).select().single()
-
-  if (error) throw error
-  return mapAnswer(data)
+  const question = await restGet(`/qa_questions?id=eq.${qid}`)
+  const data = await restPost('/qa_answers', {
+    question_id: qid, question: question?.[0]?.question || '', category: question?.[0]?.category || '',
+    my_answer: myAnswer, my_nickname: myNickname,
+  })
+  return mapAnswer(data[0])
 }
 
-export async function submitPartnerAnswer(questionId: string, partnerAnswer: string, partnerNickname: string): Promise<QAAnswer> {
-  const { data, error } = await supabase.from('qa_answers').update({
-    partner_answer: partnerAnswer,
-    partner_nickname: partnerNickname,
+export async function submitPartnerAnswer(qid: string, partnerAnswer: string, partnerNickname: string): Promise<QAAnswer> {
+  const existing = await restGet(`/qa_answers?select=id&question_id=eq.${qid}`)
+  const id = existing[0].id
+  await restPatch(`/qa_answers?id=eq.${id}`, {
+    partner_answer: partnerAnswer, partner_nickname: partnerNickname,
     answered_at: new Date().toISOString(),
-  }).eq('question_id', questionId).select().single()
-
-  if (error) throw error
-  return mapAnswer(data)
+  })
+  const data = await restGet(`/qa_answers?id=eq.${id}`)
+  return mapAnswer(data[0])
 }
 
-export async function saveAIAnalysis(questionId: string, aiAnalysis: string) {
-  await supabase.from('qa_answers').update({ ai_analysis: aiAnalysis }).eq('question_id', questionId)
+export async function saveAIAnalysis(qid: string, aiAnalysis: string) {
+  const existing = await restGet(`/qa_answers?select=id&question_id=eq.${qid}`)
+  if (existing?.length > 0) {
+    await restPatch(`/qa_answers?id=eq.${existing[0].id}`, { ai_analysis: aiAnalysis })
+  }
 }
 
 export async function getAnsweredQAHistory(): Promise<QAAnswer[]> {
@@ -191,18 +197,25 @@ export async function getAnsweredQAHistory(): Promise<QAAnswer[]> {
   return answers.filter((a) => a.myAnswer && a.partnerAnswer)
 }
 
-function mapAnswer(r: Record<string, unknown>): QAAnswer {
+// ===== Helpers =====
+async function getSessionData() {
+  const promise = supabase.auth.getSession()
+  const timeout = new Promise<null>((r) => setTimeout(() => r(null), 5000))
+  return Promise.race([promise, timeout])
+}
+
+function mapAnswer(r: any): QAAnswer {
   return {
-    id: r.id as string,
-    questionId: r.question_id as string,
-    question: (r.question as string) || '',
-    category: (r.category as string) || '',
-    myAnswer: (r.my_answer as string) || '',
-    myNickname: (r.my_nickname as string) || '',
-    partnerAnswer: (r.partner_answer as string) || '',
-    partnerNickname: (r.partner_nickname as string) || '',
-    aiAnalysis: (r.ai_analysis as string) || null,
-    createdAt: (r.created_at as string) || '',
-    answeredAt: (r.answered_at as string) || null,
+    id: r.id,
+    questionId: r.question_id,
+    question: r.question || '',
+    category: r.category || '',
+    myAnswer: r.my_answer || '',
+    myNickname: r.my_nickname || '',
+    partnerAnswer: r.partner_answer || '',
+    partnerNickname: r.partner_nickname || '',
+    aiAnalysis: r.ai_analysis || null,
+    createdAt: r.created_at || '',
+    answeredAt: r.answered_at || null,
   }
 }
