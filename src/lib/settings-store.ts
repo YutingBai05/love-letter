@@ -7,7 +7,6 @@ const defaults: Record<string, string> = {
 }
 
 let cache: Record<string, string> = { ...defaults }
-let loaded = false
 
 export async function loadSettings() {
   try {
@@ -20,7 +19,6 @@ export async function loadSettings() {
   } catch (e) {
     console.warn('[Settings] Failed to load from Supabase, using defaults')
   }
-  loaded = true
 }
 
 export function getSetting(key: string): string {

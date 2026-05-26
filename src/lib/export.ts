@@ -154,8 +154,8 @@ export async function exportByFolder(folderId: string) {
   const folders = await getFolders()
   const folder = folders.find((f: any) => f.id === folderId)
   const folderName = folder?.name || folderId
-  const postcards = getPostcardsByFolder(folderId)
-  const letters = getLettersByFolder(folderId)
+  const postcards = await getPostcardsByFolder(folderId)
+  const letters = await getLettersByFolder(folderId)
 
   let combined = `# ${folderName} - 导出\n\n`
 
