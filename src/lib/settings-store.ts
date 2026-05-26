@@ -1,4 +1,5 @@
-import { supabase } from './supabase'
+const BASE = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1`
+const KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
 
 const defaults: Record<string, string> = {
   subtitle_home: '珍藏每一次心动',
@@ -8,26 +9,32 @@ const defaults: Record<string, string> = {
 
 const cache: Record<string, string> = { ...defaults }
 
+async function fetchApi(path: string, options?: RequestInit) {
+  const headers: Record<string, string> = {
+    apikey: KEY,
+    Authorization: `Bearer ${KEY}`,
+    'Content-Type': 'application/json',
+    ...(options?.headers as Record<string, string> || {}),
+  }
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 6000)
+  try {
+    const resp = await fetch(`${BASE}${path}`, { ...options, headers, signal: controller.signal })
+    if (!resp.ok) {
+      const err = await resp.text()
+      throw new Error(`${resp.status}: ${err}`)
+    }
+    return resp.json()
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 export async function loadSettings() {
   try {
-    const promise = supabase.from('settings').select('*')
-    const timeout = new Promise<{ data: any; error: any } | null>((r) =>
-      setTimeout(() => r(null), 4000)
-    )
-    const result = await Promise.race([promise, timeout])
-
-    if (!result) {
-      console.warn('[Settings] Load timed out')
-      return
-    }
-
-    const { data, error } = result
-    if (error) {
-      console.warn('[Settings] Load error:', error.message)
-      return
-    }
-
-    if (data) {
+    console.log('[Settings] Loading via REST...')
+    const data = await fetchApi('/settings?select=*')
+    if (Array.isArray(data)) {
       for (const row of data) {
         cache[row.key] = row.value
       }
@@ -45,12 +52,14 @@ export function getSetting(key: string): string {
 export async function setSetting(key: string, value: string) {
   cache[key] = value
   try {
-    const promise = supabase.from('settings').upsert({ key, value }, { onConflict: 'key' })
-    const timeout = new Promise<{ error: any } | null>((r) => setTimeout(() => r(null), 4000))
-    const result = await Promise.race([promise, timeout])
-    if (result?.error) console.warn('[Settings] Upsert error:', key, result.error.message)
+    await fetchApi('/settings', {
+      method: 'POST',
+      body: JSON.stringify({ key, value }),
+      headers: { Prefer: 'resolution=merge-duplicates' },
+    })
+    console.log('[Settings] Saved:', key)
   } catch (e) {
-    console.warn('[Settings] Upsert failed:', key, e)
+    console.warn('[Settings] Save failed:', key, e)
   }
 }
 
@@ -58,11 +67,15 @@ export async function setSettings(updates: Record<string, string>) {
   for (const [k, v] of Object.entries(updates)) cache[k] = v
   try {
     const rows = Object.entries(updates).map(([key, value]) => ({ key, value }))
-    const promise = supabase.from('settings').upsert(rows, { onConflict: 'key' })
-    const timeout = new Promise<{ error: any } | null>((r) => setTimeout(() => r(null), 4000))
-    const result = await Promise.race([promise, timeout])
-    if (result?.error) console.warn('[Settings] Batch upsert error:', result.error.message)
+    for (const row of rows) {
+      await fetchApi('/settings', {
+        method: 'POST',
+        body: JSON.stringify(row),
+        headers: { Prefer: 'resolution=merge-duplicates' },
+      })
+    }
+    console.log('[Settings] Batch saved:', Object.keys(updates).join(', '))
   } catch (e) {
-    console.warn('[Settings] Batch upsert failed:', e)
+    console.warn('[Settings] Batch save failed:', e)
   }
 }
