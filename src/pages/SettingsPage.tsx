@@ -5,7 +5,7 @@ import { getAIKey, setAIKey, getAIModel, setAIModel, type AIProvider } from '@/l
 import { logout, generateInviteCode, getMyInviteCode, setNickname } from '@/lib/auth-store'
 import { getFolders, addFolder, lockFolder, unlockFolder, deleteFolder } from '@/lib/store'
 import { exportAllByType, exportByFolder } from '@/lib/export'
-import { getSetting, setSettings } from '@/lib/settings-store'
+import { getSetting, setSetting, setSettings } from '@/lib/settings-store'
 import { useAuth } from '@/components/AuthProvider'
 
 const DEFAULT_ABOUT = '灵感来源于几米的漫画《我只能为你画一张小卡片》。每一张卡片都是在心里藏了很久的话，就像现在的我一样。'
