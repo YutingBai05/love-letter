@@ -99,8 +99,8 @@ const PRESET_QUESTIONS = [
 
 // ===== Questions =====
 export async function seedPresetQuestions() {
-  const { data: session } = await getSessionData()
-  if (!session?.user?.id) return
+  const s = await getSessionData()
+  if (!s?.data?.session?.user?.id) return
   try {
     const existing = await restGet('/qa_questions?select=id&limit=1')
     if (existing?.length > 0) return
@@ -108,7 +108,7 @@ export async function seedPresetQuestions() {
 
   for (const q of PRESET_QUESTIONS) {
     try {
-      await restPost('/qa_questions', { category: q.category, question: q.question, created_by: session.user.id })
+      await restPost('/qa_questions', { category: q.category, question: q.question, created_by: s.data.session.user.id })
     } catch {}
   }
 }
@@ -126,9 +126,9 @@ export async function getCategories(): Promise<string[]> {
 }
 
 export async function addQuestion(cat: string, question: string): Promise<QAQuestion> {
-  const { data: session } = await getSessionData()
-  if (!session?.user?.id) throw new Error('Not logged in')
-  const data = await restPost('/qa_questions', { category: cat, question, created_by: session.user.id })
+  const s = await getSessionData()
+  if (!s?.data?.session?.user?.id) throw new Error('Not logged in')
+  const data = await restPost('/qa_questions', { category: cat, question, created_by: s.data.session.user.id })
   return { id: data[0].id, category: cat, question }
 }
 
@@ -137,8 +137,8 @@ export async function deleteQuestion(id: string) {
 }
 
 export async function importQuestions(items: { category: string; question: string }[]): Promise<number> {
-  const { data: session } = await getSessionData()
-  if (!session?.user?.id) return 0
+  const s = await getSessionData()
+  if (!s?.data?.session?.user?.id) return 0
   const existing = await getQuestions()
   let added = 0
   for (const item of items) {
@@ -201,7 +201,8 @@ export async function getAnsweredQAHistory(): Promise<QAAnswer[]> {
 async function getSessionData() {
   const promise = supabase.auth.getSession()
   const timeout = new Promise<null>((r) => setTimeout(() => r(null), 5000))
-  return Promise.race([promise, timeout])
+  const result = await Promise.race([promise, timeout])
+  return result || null
 }
 
 function mapAnswer(r: any): QAAnswer {
