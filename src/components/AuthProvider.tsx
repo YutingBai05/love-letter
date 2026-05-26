@@ -79,8 +79,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const { data: listener } = supabase.auth.onAuthStateChange(async (event) => {
       console.log('[Auth] State change:', event)
-      const u = await loadUser()
-      setUser(u)
+      if (event === 'SIGNED_OUT') {
+        setUser(null)
+        return
+      }
+      // For TOKEN_REFRESHED, USER_UPDATED etc., just refresh the user without clearing
+      try {
+        const u = await loadUser()
+        if (u) setUser(u)
+      } catch {
+        // silently ignore refresh errors
+      }
     })
 
     return () => {
