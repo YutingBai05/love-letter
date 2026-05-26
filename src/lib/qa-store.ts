@@ -2,7 +2,7 @@ import { supabase } from './supabase'
 import type { QAQuestion, QAAnswer } from './types'
 import { getSetting, setSetting } from './settings-store'
 
-// ===== AI Settings (still localStorage - doesn't need sync) =====
+// ===== AI Settings (stored in Supabase settings table) =====
 
 export type AIProvider = 'openai' | 'deepseek' | 'gemini'
 

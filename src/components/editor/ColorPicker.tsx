@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Plus, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { getSetting, setSetting } from '@/lib/settings-store'
 
 const PRESET_COLORS = [
   '#FFF8F0', // warm cream
@@ -17,11 +18,9 @@ const PRESET_COLORS = [
   '#F0F0F0', // light gray
 ]
 
-const STORAGE_KEY = 'love-letter-custom-colors'
-
 function loadCustomColors(): string[] {
   try {
-    const stored = localStorage.getItem(STORAGE_KEY)
+    const stored = getSetting('custom_colors')
     return stored ? JSON.parse(stored) : []
   } catch {
     return []
@@ -29,7 +28,7 @@ function loadCustomColors(): string[] {
 }
 
 function saveCustomColors(colors: string[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(colors))
+  setSetting('custom_colors', JSON.stringify(colors))
 }
 
 interface ColorPickerProps {

@@ -33,7 +33,7 @@ export function SettingsPage() {
   const [nickname, setNicknameState] = useState(user?.nickname || '')
   const [nicknameSaved, setNicknameSaved] = useState(false)
 
-  const [about, setAbout] = useState(() => localStorage.getItem('love-letter-about') || DEFAULT_ABOUT)
+  const [about, setAbout] = useState(() => getSetting('about') || DEFAULT_ABOUT)
   const [editingAbout, setEditingAbout] = useState(false)
   const [aboutSaved, setAboutSaved] = useState(false)
 
@@ -285,7 +285,7 @@ export function SettingsPage() {
           <div className="space-y-2">
             <textarea value={about} onChange={(e) => setAbout(e.target.value)} rows={3}
               className="w-full px-3 py-2 rounded-lg border border-warm-beige bg-white text-sm leading-relaxed focus:outline-none focus:border-rose resize-none" />
-            <button onClick={() => { localStorage.setItem('love-letter-about', about.trim()); setEditingAbout(false); setAboutSaved(true); setTimeout(() => setAboutSaved(false), 1500) }}
+            <button onClick={async () => { await setSetting('about', about.trim()); setEditingAbout(false); setAboutSaved(true); setTimeout(() => setAboutSaved(false), 1500) }}
               className={`px-3 py-1 rounded-lg text-xs transition-colors ${aboutSaved ? 'bg-green-500 text-white' : 'bg-rose text-white hover:bg-rose/90'}`}>
               {aboutSaved ? '已保存 ✓' : '保存'}
             </button>
