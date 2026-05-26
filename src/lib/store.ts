@@ -1,6 +1,18 @@
 import { supabase } from './supabase'
 import type { Postcard, Letter, Folder } from './types'
 
+const REST_URL = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1`
+const REST_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
+
+async function restGet(path: string) {
+  const resp = await fetch(`${REST_URL}${path}`, {
+    headers: { apikey: REST_KEY, Authorization: `Bearer ${REST_KEY}` },
+    signal: AbortSignal.timeout(8000),
+  })
+  if (!resp.ok) throw new Error(`REST ${resp.status}`)
+  return resp.json()
+}
+
 // ===== Folders =====
 
 export async function getFolders(userRole?: 'owner' | 'invitee'): Promise<Folder[]> {
@@ -86,29 +98,17 @@ export async function getPostcards(): Promise<Postcard[]> {
   const userId = session.session?.user?.id
   if (!userId) return []
 
-  // Get partner ID via REST (bypass SDK hanging issue)
   let partnerId: string | null = null
+  try { const p = await restGet(`/profiles?select=paired_with&id=eq.${userId}`); partnerId = p?.[0]?.paired_with || null } catch {}
+
+  const filter = partnerId
+    ? `author_id=in.(${userId},${partnerId})`
+    : `author_id=eq.${userId}`
+
   try {
-    const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/rest/v1/profiles?select=paired_with&id=eq.${userId}`, {
-      headers: {
-        apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
-        Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-      },
-      signal: AbortSignal.timeout(5000),
-    })
-    const data = await resp.json()
-    partnerId = data?.[0]?.paired_with || null
-  } catch { /* ignore */ }
-
-  let query = supabase.from('postcards').select('*').order('created_at', { ascending: false })
-  if (partnerId) {
-    query = query.or(`author_id.eq.${userId},author_id.eq.${partnerId}`)
-  } else {
-    query = query.eq('author_id', userId)
-  }
-
-  const { data } = await query
-  return (data || []).map(mapPostcard)
+    const data = await restGet(`/postcards?select=*&order=created_at.desc&${filter}`)
+    return (data || []).map(mapPostcard)
+  } catch { return [] }
 }
 
 export async function getPostcardsByFolder(folderId: string): Promise<Postcard[]> {
@@ -200,27 +200,16 @@ export async function getLetters(): Promise<Letter[]> {
   if (!userId) return []
 
   let partnerId: string | null = null
+  try { const p = await restGet(`/profiles?select=paired_with&id=eq.${userId}`); partnerId = p?.[0]?.paired_with || null } catch {}
+
+  const filter = partnerId
+    ? `author_id=in.(${userId},${partnerId})`
+    : `author_id=eq.${userId}`
+
   try {
-    const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/rest/v1/profiles?select=paired_with&id=eq.${userId}`, {
-      headers: {
-        apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
-        Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-      },
-      signal: AbortSignal.timeout(5000),
-    })
-    const data = await resp.json()
-    partnerId = data?.[0]?.paired_with || null
-  } catch { /* ignore */ }
-
-  let query = supabase.from('letters').select('*').order('created_at', { ascending: false })
-  if (partnerId) {
-    query = query.or(`author_id.eq.${userId},author_id.eq.${partnerId}`)
-  } else {
-    query = query.eq('author_id', userId)
-  }
-
-  const { data } = await query
-  return (data || []).map(mapLetter)
+    const data = await restGet(`/letters?select=*&order=created_at.desc&${filter}`)
+    return (data || []).map(mapLetter)
+  } catch { return [] }
 }
 
 export async function getLettersByFolder(folderId: string): Promise<Letter[]> {
