@@ -1,5 +1,6 @@
 import { supabase } from './supabase'
 import type { QAQuestion, QAAnswer } from './types'
+import { getSetting, setSetting } from './settings-store'
 
 // ===== AI Settings (still localStorage - doesn't need sync) =====
 
@@ -20,19 +21,19 @@ export function getProviderLabel(provider: AIProvider): string {
 }
 
 export function getAIKey(provider: AIProvider): string {
-  return localStorage.getItem(`love-letter-ai-key-${provider}`) || ''
+  return getSetting(`ai_key_${provider}`)
 }
 
 export function setAIKey(provider: AIProvider, key: string) {
-  localStorage.setItem(`love-letter-ai-key-${provider}`, key)
+  setSetting(`ai_key_${provider}`, key)
 }
 
 export function getAIModel(provider: AIProvider): string {
-  return localStorage.getItem(`love-letter-ai-model-${provider}`) || PROVIDER_DEFAULTS[provider].model
+  return getSetting(`ai_model_${provider}`) || PROVIDER_DEFAULTS[provider].model
 }
 
 export function setAIModel(provider: AIProvider, model: string) {
-  localStorage.setItem(`love-letter-ai-model-${provider}`, model)
+  setSetting(`ai_model_${provider}`, model)
 }
 
 export function getAIEndpoint(provider: AIProvider, model?: string): string {
