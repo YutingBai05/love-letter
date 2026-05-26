@@ -13,6 +13,14 @@ async function restGet(path: string) {
   return resp.json()
 }
 
+async function getUserId(): Promise<string | null> {
+  const promise = supabase.auth.getSession()
+  const timeout = new Promise<null>((r) => setTimeout(() => r(null), 5000))
+  const result = await Promise.race([promise, timeout])
+  if (!result) return null
+  return result.data.session?.user?.id || null
+}
+
 // ===== Folders =====
 
 export async function getFolders(userRole?: 'owner' | 'invitee'): Promise<Folder[]> {
@@ -94,8 +102,7 @@ export async function canModifyFolder(folderId: string, userRole: 'owner' | 'inv
 // ===== Postcards =====
 
 export async function getPostcards(): Promise<Postcard[]> {
-  const { data: session } = await supabase.auth.getSession()
-  const userId = session.session?.user?.id
+  const userId = await getUserId()
   if (!userId) return []
 
   let partnerId: string | null = null
@@ -195,8 +202,7 @@ export async function markAsRead(id: string) {
 // ===== Letters =====
 
 export async function getLetters(): Promise<Letter[]> {
-  const { data: session } = await supabase.auth.getSession()
-  const userId = session.session?.user?.id
+  const userId = await getUserId()
   if (!userId) return []
 
   let partnerId: string | null = null
