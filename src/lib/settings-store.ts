@@ -6,44 +6,22 @@ const defaults: Record<string, string> = {
   subtitle_letter: '笔墨之中，见字如面',
 }
 
-const cache: Record<string, string> = {}
-
-function loadFromLocal(): Record<string, string> {
-  try {
-    const raw = localStorage.getItem('love-letter-settings')
-    return raw ? JSON.parse(raw) : {}
-  } catch {
-    return {}
-  }
-}
-
-function saveToLocal(data: Record<string, string>) {
-  localStorage.setItem('love-letter-settings', JSON.stringify(data))
-}
+const cache: Record<string, string> = { ...defaults }
+let loaded = false
 
 export async function loadSettings() {
-  // Start with defaults
-  Object.assign(cache, defaults)
-
-  // Load from localStorage (always works)
-  const local = loadFromLocal()
-  Object.assign(cache, local)
-
-  // Try Supabase (may fail silently)
+  if (loaded) return
   try {
-    const promise = supabase.from('settings').select('*')
-    const timeout = new Promise<null>((r) => setTimeout(() => r(null), 4000))
-    const result = await Promise.race([promise, timeout])
-
-    if (result && !result.error && result.data) {
-      for (const row of result.data) {
+    const { data, error } = await supabase.from('settings').select('*')
+    if (error) throw error
+    if (data) {
+      for (const row of data) {
         cache[row.key] = row.value
       }
-      // Sync Supabase data back to localStorage
-      saveToLocal(cache)
     }
-  } catch {
-    // Supabase unavailable, localStorage data already loaded
+    loaded = true
+  } catch (e) {
+    console.warn('[Settings] Load failed, using defaults:', e)
   }
 }
 
@@ -53,22 +31,13 @@ export function getSetting(key: string): string {
 
 export async function setSetting(key: string, value: string) {
   cache[key] = value
-  saveToLocal(cache)
-
-  // Fire-and-forget to Supabase
-  supabase.from('settings').upsert({ key, value }, { onConflict: 'key' }).then(({ error }) => {
-    if (error) console.warn('[Settings] Upsert error:', key, error.message)
-  }).catch(() => {})
+  const { error } = await supabase.from('settings').upsert({ key, value }, { onConflict: 'key' })
+  if (error) console.warn('[Settings] Upsert error:', key, error.message)
 }
 
 export async function setSettings(updates: Record<string, string>) {
-  for (const [k, v] of Object.entries(updates)) {
-    cache[k] = v
-  }
-  saveToLocal(cache)
-
+  for (const [k, v] of Object.entries(updates)) cache[k] = v
   const rows = Object.entries(updates).map(([key, value]) => ({ key, value }))
-  supabase.from('settings').upsert(rows, { onConflict: 'key' }).then(({ error }) => {
-    if (error) console.warn('[Settings] Batch upsert error:', error.message)
-  }).catch(() => {})
+  const { error } = await supabase.from('settings').upsert(rows, { onConflict: 'key' })
+  if (error) console.warn('[Settings] Batch upsert error:', error.message)
 }
