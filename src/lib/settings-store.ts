@@ -6,18 +6,34 @@ const defaults: Record<string, string> = {
   subtitle_letter: '笔墨之中，见字如面',
 }
 
-let cache: Record<string, string> = { ...defaults }
+const cache: Record<string, string> = { ...defaults }
 
 export async function loadSettings() {
   try {
-    const { data } = await supabase.from('settings').select('*')
+    console.log('[Settings] Loading from Supabase...')
+    const promise = supabase.from('settings').select('*')
+    const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000))
+    const result = await Promise.race([promise, timeout])
+
+    if (!result) {
+      console.warn('[Settings] Load timed out, using defaults')
+      return
+    }
+
+    const { data, error } = result
+    if (error) {
+      console.warn('[Settings] Load error:', error.message)
+      return
+    }
+
     if (data) {
       for (const row of data) {
         cache[row.key] = row.value
       }
+      console.log('[Settings] Loaded', data.length, 'settings')
     }
   } catch (e) {
-    console.warn('[Settings] Failed to load from Supabase, using defaults')
+    console.warn('[Settings] Load failed:', e)
   }
 }
 
@@ -27,13 +43,50 @@ export function getSetting(key: string): string {
 
 export async function setSetting(key: string, value: string) {
   cache[key] = value
-  await supabase.from('settings').upsert({ key, value }, { onConflict: 'key' })
+  try {
+    console.log('[Settings] Saving:', key)
+    const promise = supabase.from('settings').upsert({ key, value }, { onConflict: 'key' })
+    const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000))
+    const result = await Promise.race([promise, timeout])
+
+    if (!result) {
+      console.warn('[Settings] Save timed out:', key)
+      return
+    }
+
+    const { error } = result
+    if (error) {
+      console.error('[Settings] Save error:', key, error.message)
+    } else {
+      console.log('[Settings] Saved:', key)
+    }
+  } catch (e) {
+    console.warn('[Settings] Save failed:', key, e)
+  }
 }
 
 export async function setSettings(updates: Record<string, string>) {
   for (const [k, v] of Object.entries(updates)) {
     cache[k] = v
   }
-  const rows = Object.entries(updates).map(([key, value]) => ({ key, value }))
-  await supabase.from('settings').upsert(rows, { onConflict: 'key' })
+  try {
+    const rows = Object.entries(updates).map(([key, value]) => ({ key, value }))
+    const promise = supabase.from('settings').upsert(rows, { onConflict: 'key' })
+    const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000))
+    const result = await Promise.race([promise, timeout])
+
+    if (!result) {
+      console.warn('[Settings] Batch save timed out')
+      return
+    }
+
+    const { error } = result
+    if (error) {
+      console.error('[Settings] Batch save error:', error.message)
+    } else {
+      console.log('[Settings] Batch saved:', Object.keys(updates).join(', '))
+    }
+  } catch (e) {
+    console.warn('[Settings] Batch save failed:', e)
+  }
 }
