@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react'
-import { Download } from 'lucide-react'
+import { Download, ChevronDown, ChevronUp } from 'lucide-react'
 import { getPostcards, getLetters, getFolders, markAsRead, markLetterAsRead } from '@/lib/store'
 import { getAnsweredQAHistory } from '@/lib/qa-store'
 import { useAuth } from '@/components/AuthProvider'
@@ -15,6 +15,7 @@ function formatDate(iso: string): string {
 }
 
 function LetterCard({ letter }: { letter: Letter }) {
+  const [expanded, setExpanded] = useState(false)
   const getPaperClass = (tpl: string) => {
     switch (tpl) {
       case 'lined': return 'bg-[repeating-linear-gradient(transparent,transparent_27px,rgba(180,160,140,0.2)_27px,rgba(180,160,140,0.2)_28px)]'
@@ -24,7 +25,7 @@ function LetterCard({ letter }: { letter: Letter }) {
   }
   return (
     <div className={`rounded-xl p-5 min-h-[120px] ${getPaperClass(letter.paperTemplate)} border border-warm-beige`}>
-      <div className="prose prose-sm max-w-none text-ink-brown line-clamp-4" dangerouslySetInnerHTML={{ __html: letter.content }} />
+      <div className={`prose prose-sm max-w-none text-ink-brown ${expanded ? '' : 'line-clamp-4'}`} dangerouslySetInnerHTML={{ __html: letter.content }} />
       <div className="mt-3 flex items-center justify-between text-xs text-warm-gray">
         <div className="flex items-center gap-2">
           {letter.authorNickname && <span className="font-medium text-ink-brown">{letter.authorNickname}</span>}
@@ -34,6 +35,11 @@ function LetterCard({ letter }: { letter: Letter }) {
           <button onClick={(e) => { e.stopPropagation(); exportLetter(letter) }}
             className="flex items-center gap-1 text-warm-gray hover:text-rose transition-colors">
             <Download className="w-3 h-3" />导出
+          </button>
+          <button onClick={(e) => { e.stopPropagation(); setExpanded(!expanded) }}
+            className="flex items-center gap-0.5 text-warm-gray hover:text-rose transition-colors">
+            {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+            {expanded ? '收起' : '展开'}
           </button>
           <span>✉️ 信件</span>
         </div>
