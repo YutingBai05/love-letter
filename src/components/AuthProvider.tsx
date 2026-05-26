@@ -64,16 +64,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   useEffect(() => {
-    // Load settings from Supabase
-    loadSettings()
-
-    // Force stop loading after 5 seconds max
-    const timeout = setTimeout(() => {
-      setLoading(false)
-    }, 5000)
-
-    refresh().finally(() => {
-      clearTimeout(timeout)
+    // Load settings and user in parallel
+    Promise.all([loadSettings(), refresh()]).finally(() => {
       setLoading(false)
     })
 
@@ -93,7 +85,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })
 
     return () => {
-      clearTimeout(timeout)
       listener.subscription.unsubscribe()
     }
   }, [])
