@@ -1,14 +1,50 @@
+import { supabase } from './supabase'
 import type { QAQuestion, QAAnswer } from './types'
-import { getNickname, getPartner } from './auth-store'
 
-const QUESTIONS_KEY = 'love-letter-qa-questions'
-const ANSWERS_KEY = 'love-letter-qa-answers'
+// ===== AI Settings (still localStorage - doesn't need sync) =====
 
-function generateId(): string {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
+export type AIProvider = 'openai' | 'deepseek' | 'gemini'
+
+const PROVIDER_DEFAULTS: Record<AIProvider, { model: string; endpoint: string }> = {
+  openai: { model: 'gpt-3.5-turbo', endpoint: 'https://api.openai.com/v1/chat/completions' },
+  deepseek: { model: 'deepseek-chat', endpoint: 'https://api.deepseek.com/v1/chat/completions' },
+  gemini: { model: 'gemini-2.0-flash', endpoint: 'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent' },
 }
 
-// --- Preset questions ---
+const PROVIDER_LABELS: Record<AIProvider, string> = {
+  openai: 'OpenAI', deepseek: 'DeepSeek', gemini: 'Gemini',
+}
+
+export function getProviderLabel(provider: AIProvider): string {
+  return PROVIDER_LABELS[provider]
+}
+
+export function getAIKey(provider: AIProvider): string {
+  return localStorage.getItem(`love-letter-ai-key-${provider}`) || ''
+}
+
+export function setAIKey(provider: AIProvider, key: string) {
+  localStorage.setItem(`love-letter-ai-key-${provider}`, key)
+}
+
+export function getAIModel(provider: AIProvider): string {
+  return localStorage.getItem(`love-letter-ai-model-${provider}`) || PROVIDER_DEFAULTS[provider].model
+}
+
+export function setAIModel(provider: AIProvider, model: string) {
+  localStorage.setItem(`love-letter-ai-model-${provider}`, model)
+}
+
+export function getAIEndpoint(provider: AIProvider, model?: string): string {
+  const m = model || getAIModel(provider)
+  return PROVIDER_DEFAULTS[provider].endpoint.replace('{model}', m)
+}
+
+export function getConfiguredProviders(): AIProvider[] {
+  return (['openai', 'deepseek', 'gemini'] as AIProvider[]).filter((p) => !!getAIKey(p))
+}
+
+// ===== Preset questions =====
 
 const PRESET_QUESTIONS: Omit<QAQuestion, 'id'>[] = [
   { category: '关于我们', question: '我们第一次见面时，对方做了什么让你印象深刻的事？' },
@@ -33,211 +69,139 @@ const PRESET_QUESTIONS: Omit<QAQuestion, 'id'>[] = [
   { category: '假设', question: '如果时间可以倒流，你会改变我们之间的哪件事？' },
 ]
 
-// --- Questions bank ---
+// ===== Questions =====
 
-export function getQuestions(): QAQuestion[] {
-  try {
-    const raw = localStorage.getItem(QUESTIONS_KEY)
-    if (!raw) {
-      const defaults: QAQuestion[] = PRESET_QUESTIONS.map((q) => ({
-        ...q,
-        id: generateId(),
-      }))
-      localStorage.setItem(QUESTIONS_KEY, JSON.stringify(defaults))
-      return defaults
-    }
-    return JSON.parse(raw)
-  } catch {
-    return []
-  }
+export async function seedPresetQuestions() {
+  const { data: session } = await supabase.auth.getSession()
+  const userId = session.session?.user?.id
+  if (!userId) return
+
+  const { data: existing } = await supabase.from('qa_questions').select('id').limit(1)
+  if (existing && existing.length > 0) return
+
+  const toInsert = PRESET_QUESTIONS.map((q) => ({
+    category: q.category,
+    question: q.question,
+    created_by: userId,
+  }))
+
+  await supabase.from('qa_questions').insert(toInsert)
 }
 
-function saveQuestions(questions: QAQuestion[]) {
-  localStorage.setItem(QUESTIONS_KEY, JSON.stringify(questions))
+export async function getQuestions(): Promise<QAQuestion[]> {
+  const { data } = await supabase.from('qa_questions').select('*').order('created_at', { ascending: true })
+  return (data || []).map((q) => ({ id: q.id, category: q.category, question: q.question }))
 }
 
-export function addQuestion(category: string, question: string): QAQuestion {
-  const questions = getQuestions()
-  const q: QAQuestion = { id: generateId(), category, question }
-  questions.push(q)
-  saveQuestions(questions)
-  return q
+export async function getCategories(): Promise<string[]> {
+  const questions = await getQuestions()
+  return [...new Set(questions.map((q) => q.category))].sort()
 }
 
-export function deleteQuestion(id: string) {
-  saveQuestions(getQuestions().filter((q) => q.id !== id))
+export async function addQuestion(category: string, question: string): Promise<QAQuestion> {
+  const { data: session } = await supabase.auth.getSession()
+  const userId = session.session?.user?.id
+  if (!userId) throw new Error('Not logged in')
+
+  const { data, error } = await supabase.from('qa_questions').insert({
+    category, question, created_by: userId,
+  }).select().single()
+
+  if (error) throw error
+  return { id: data.id, category: data.category, question: data.question }
 }
 
-export function importQuestions(items: { category: string; question: string }[]): number {
-  const questions = getQuestions()
+export async function deleteQuestion(id: string) {
+  await supabase.from('qa_questions').delete().eq('id', id)
+}
+
+export async function importQuestions(items: { category: string; question: string }[]): Promise<number> {
+  const { data: session } = await supabase.auth.getSession()
+  const userId = session.session?.user?.id
+  if (!userId) return 0
+
+  const existing = await getQuestions()
   let added = 0
   for (const item of items) {
     if (!item.category || !item.question) continue
-    const exists = questions.some(
-      (q) => q.category === item.category && q.question === item.question
-    )
+    const exists = existing.some((q) => q.category === item.category && q.question === item.question)
     if (!exists) {
-      questions.push({ id: generateId(), category: item.category, question: item.question })
+      await supabase.from('qa_questions').insert({
+        category: item.category, question: item.question, created_by: userId,
+      })
       added++
     }
   }
-  saveQuestions(questions)
   return added
 }
 
-export function getCategories(): string[] {
-  const cats = new Set(getQuestions().map((q) => q.category))
-  return [...cats].sort()
+// ===== Answers =====
+
+export async function getAnswers(): Promise<QAAnswer[]> {
+  const { data } = await supabase.from('qa_answers').select('*').order('created_at', { ascending: false })
+  return (data || []).map(mapAnswer)
 }
 
-// --- Answers ---
+export async function submitMyAnswer(questionId: string, myAnswer: string, myNickname: string): Promise<QAAnswer> {
+  // Check if answer exists
+  const { data: existing } = await supabase.from('qa_answers').select('*').eq('question_id', questionId).maybeSingle()
 
-export function getAnswers(): QAAnswer[] {
-  try {
-    const raw = localStorage.getItem(ANSWERS_KEY)
-    return raw ? JSON.parse(raw) : []
-  } catch {
-    return []
+  if (existing) {
+    const { data, error } = await supabase.from('qa_answers').update({
+      my_answer: myAnswer,
+      my_nickname: myNickname,
+    }).eq('id', existing.id).select().single()
+    if (error) throw error
+    return mapAnswer(data)
   }
+
+  // Get question info
+  const { data: question } = await supabase.from('qa_questions').select('*').eq('id', questionId).single()
+
+  const { data, error } = await supabase.from('qa_answers').insert({
+    question_id: questionId,
+    question: question?.question || '',
+    category: question?.category || '',
+    my_answer: myAnswer,
+    my_nickname: myNickname,
+  }).select().single()
+
+  if (error) throw error
+  return mapAnswer(data)
 }
 
-function saveAnswers(answers: QAAnswer[]) {
-  localStorage.setItem(ANSWERS_KEY, JSON.stringify(answers))
+export async function submitPartnerAnswer(questionId: string, partnerAnswer: string, partnerNickname: string): Promise<QAAnswer> {
+  const { data, error } = await supabase.from('qa_answers').update({
+    partner_answer: partnerAnswer,
+    partner_nickname: partnerNickname,
+    answered_at: new Date().toISOString(),
+  }).eq('question_id', questionId).select().single()
+
+  if (error) throw error
+  return mapAnswer(data)
 }
 
-export function getOrCreateAnswer(questionId: string): QAAnswer {
-  const answers = getAnswers()
-  let answer = answers.find((a) => a.questionId === questionId)
-  if (!answer) {
-    const question = getQuestions().find((q) => q.id === questionId)
-    if (!question) throw new Error('Question not found')
-    answer = {
-      id: generateId(),
-      questionId: question.id,
-      question: question.question,
-      category: question.category,
-      myAnswer: '',
-      myNickname: '',
-      partnerAnswer: '',
-      partnerNickname: '',
-      aiAnalysis: null,
-      createdAt: new Date().toISOString(),
-      answeredAt: null,
-    }
-    answers.push(answer)
-    saveAnswers(answers)
+export async function saveAIAnalysis(questionId: string, aiAnalysis: string) {
+  await supabase.from('qa_answers').update({ ai_analysis: aiAnalysis }).eq('question_id', questionId)
+}
+
+export async function getAnsweredQAHistory(): Promise<QAAnswer[]> {
+  const answers = await getAnswers()
+  return answers.filter((a) => a.myAnswer && a.partnerAnswer)
+}
+
+function mapAnswer(r: Record<string, unknown>): QAAnswer {
+  return {
+    id: r.id as string,
+    questionId: r.question_id as string,
+    question: (r.question as string) || '',
+    category: (r.category as string) || '',
+    myAnswer: (r.my_answer as string) || '',
+    myNickname: (r.my_nickname as string) || '',
+    partnerAnswer: (r.partner_answer as string) || '',
+    partnerNickname: (r.partner_nickname as string) || '',
+    aiAnalysis: (r.ai_analysis as string) || null,
+    createdAt: (r.created_at as string) || '',
+    answeredAt: (r.answered_at as string) || null,
   }
-  return answer
-}
-
-export function submitMyAnswer(questionId: string, myAnswer: string): QAAnswer {
-  const answers = getAnswers()
-  let answer = answers.find((a) => a.questionId === questionId)
-  const nickname = getNickname()
-  if (!answer) {
-    const question = getQuestions().find((q) => q.id === questionId)
-    if (!question) throw new Error('Question not found')
-    answer = {
-      id: generateId(),
-      questionId: question.id,
-      question: question.question,
-      category: question.category,
-      myAnswer,
-      myNickname: nickname,
-      partnerAnswer: '',
-      partnerNickname: '',
-      aiAnalysis: null,
-      createdAt: new Date().toISOString(),
-      answeredAt: null,
-    }
-    answers.push(answer)
-  } else {
-    answer.myAnswer = myAnswer
-    answer.myNickname = nickname
-  }
-  saveAnswers(answers)
-  return answer
-}
-
-export function submitPartnerAnswer(questionId: string, partnerAnswer: string): QAAnswer {
-  const answers = getAnswers()
-  const answer = answers.find((a) => a.questionId === questionId)
-  if (!answer) throw new Error('Answer not found')
-  const partner = getPartner()
-  const partnerNick = partner?.nickname || '对方'
-  answer.partnerAnswer = partnerAnswer
-  answer.partnerNickname = partnerNick
-  answer.answeredAt = new Date().toISOString()
-  saveAnswers(answers)
-  return answer
-}
-
-export function saveAIAnalysis(questionId: string, aiAnalysis: string) {
-  const answers = getAnswers()
-  const answer = answers.find((a) => a.questionId === questionId)
-  if (!answer) return
-  answer.aiAnalysis = aiAnalysis
-  saveAnswers(answers)
-}
-
-export function getAnsweredQAHistory(): QAAnswer[] {
-  return getAnswers()
-    .filter((a) => a.myAnswer && a.partnerAnswer)
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-}
-
-// --- AI Settings ---
-export type AIProvider = 'openai' | 'deepseek' | 'gemini'
-
-const PROVIDER_DEFAULTS: Record<AIProvider, { model: string; endpoint: string }> = {
-  openai: { model: 'gpt-3.5-turbo', endpoint: 'https://api.openai.com/v1/chat/completions' },
-  deepseek: { model: 'deepseek-chat', endpoint: 'https://api.deepseek.com/v1/chat/completions' },
-  gemini: { model: 'gemini-2.0-flash', endpoint: 'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent' },
-}
-
-const PROVIDER_LABELS: Record<AIProvider, string> = {
-  openai: 'OpenAI',
-  deepseek: 'DeepSeek',
-  gemini: 'Gemini',
-}
-
-export function getProviderLabel(provider: AIProvider): string {
-  return PROVIDER_LABELS[provider]
-}
-
-// Per-provider API keys
-export function getAIKey(provider: AIProvider): string {
-  return localStorage.getItem(`love-letter-ai-key-${provider}`) || ''
-}
-
-export function setAIKey(provider: AIProvider, key: string) {
-  localStorage.setItem(`love-letter-ai-key-${provider}`, key)
-}
-
-export function getAnyAIKey(): { provider: AIProvider; key: string } | null {
-  for (const p of ['openai', 'deepseek', 'gemini'] as AIProvider[]) {
-    const key = getAIKey(p)
-    if (key) return { provider: p, key }
-  }
-  return null
-}
-
-// Per-provider model
-export function getAIModel(provider: AIProvider): string {
-  return localStorage.getItem(`love-letter-ai-model-${provider}`) || PROVIDER_DEFAULTS[provider].model
-}
-
-export function setAIModel(provider: AIProvider, model: string) {
-  localStorage.setItem(`love-letter-ai-model-${provider}`, model)
-}
-
-// Endpoint
-export function getAIEndpoint(provider: AIProvider, model?: string): string {
-  const m = model || getAIModel(provider)
-  return PROVIDER_DEFAULTS[provider].endpoint.replace('{model}', m)
-}
-
-// Get list of configured providers (those with keys set)
-export function getConfiguredProviders(): AIProvider[] {
-  return (['openai', 'deepseek', 'gemini'] as AIProvider[]).filter((p) => !!getAIKey(p))
 }

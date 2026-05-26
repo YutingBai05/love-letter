@@ -13,7 +13,7 @@ export function RegisterPage() {
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
 
-  const handleRegister = () => {
+  const handleRegister = async () => {
     setError('')
     if (!email.trim() || !password.trim()) {
       setError('请填写邮箱和密码')
@@ -28,7 +28,7 @@ export function RegisterPage() {
       return
     }
     setLoading(true)
-    const result = registerUser(email, password, nickname, role, inviteCode.trim() || undefined)
+    const result = await registerUser(email, password, nickname, role, inviteCode.trim() || undefined)
     setLoading(false)
     if (result.error) {
       setError(result.error)
@@ -47,118 +47,71 @@ export function RegisterPage() {
         </div>
 
         <div className="bg-white/70 rounded-xl border border-warm-beige shadow-sm p-6 space-y-4">
-          {/* Role selector */}
           <div>
             <label className="text-xs text-warm-gray mb-2 block">角色</label>
             <div className="flex gap-2">
-              <button
-                onClick={() => setRole('owner')}
-                className={`flex-1 py-2 rounded-lg text-sm border transition-colors ${
-                  role === 'owner'
-                    ? 'border-rose bg-rose/10 text-rose'
-                    : 'border-warm-beige text-warm-gray hover:border-warm-gray'
-                }`}
-              >
-                邀请方
-              </button>
-              <button
-                onClick={() => setRole('invitee')}
-                className={`flex-1 py-2 rounded-lg text-sm border transition-colors ${
-                  role === 'invitee'
-                    ? 'border-rose bg-rose/10 text-rose'
-                    : 'border-warm-beige text-warm-gray hover:border-warm-gray'
-                }`}
-              >
-                被邀请方
-              </button>
+              {(['owner', 'invitee'] as const).map((r) => (
+                <button key={r} onClick={() => setRole(r)}
+                  className={`flex-1 py-2 rounded-lg text-sm border transition-colors ${
+                    role === r ? 'border-rose bg-rose/10 text-rose' : 'border-warm-beige text-warm-gray hover:border-warm-gray'
+                  }`}>
+                  {r === 'owner' ? '邀请方' : '被邀请方'}
+                </button>
+              ))}
             </div>
-            <p className="text-xs text-warm-gray mt-1.5">
-              {role === 'owner'
-                ? '邀请方创建账号后可生成邀请码分享给对方'
-                : '需要邀请方的邀请码才能注册'}
-            </p>
           </div>
 
-          {/* Invite code (only for invitee) */}
           {role === 'invitee' && (
             <div>
               <label className="text-xs text-warm-gray mb-1 block">邀请码</label>
               <div className="relative">
                 <Key className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-warm-gray" />
-                <input
-                  type="text"
-                  value={inviteCode}
+                <input type="text" value={inviteCode}
                   onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
-                  placeholder="LL-..."
-                  className="w-full pl-10 pr-3 py-2.5 rounded-lg border border-warm-beige bg-white text-sm focus:outline-none focus:border-rose uppercase"
-                />
+                  placeholder="LL-..." className="w-full pl-10 pr-3 py-2.5 rounded-lg border border-warm-beige bg-white text-sm focus:outline-none focus:border-rose uppercase" />
               </div>
             </div>
           )}
 
-          {/* Nickname */}
           <div>
             <label className="text-xs text-warm-gray mb-1 block">昵称</label>
-            <input
-              type="text"
-              value={nickname}
-              onChange={(e) => setNickname(e.target.value)}
-              placeholder="你的昵称（可选，默认用邮箱前缀）"
-              className="w-full px-3 py-2.5 rounded-lg border border-warm-beige bg-white text-sm focus:outline-none focus:border-rose"
-            />
+            <input type="text" value={nickname} onChange={(e) => setNickname(e.target.value)}
+              placeholder="你的昵称（可选）"
+              className="w-full px-3 py-2.5 rounded-lg border border-warm-beige bg-white text-sm focus:outline-none focus:border-rose" />
           </div>
 
-          {/* Email */}
           <div>
             <label className="text-xs text-warm-gray mb-1 block">邮箱</label>
             <div className="relative">
               <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-warm-gray" />
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)}
                 placeholder="your@email.com"
                 className="w-full pl-10 pr-3 py-2.5 rounded-lg border border-warm-beige bg-white text-sm focus:outline-none focus:border-rose"
-                onKeyDown={(e) => e.key === 'Enter' && handleRegister()}
-              />
+                onKeyDown={(e) => e.key === 'Enter' && handleRegister()} />
             </div>
           </div>
 
-          {/* Password */}
           <div>
             <label className="text-xs text-warm-gray mb-1 block">密码</label>
             <div className="relative">
               <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-warm-gray" />
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
+              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)}
                 placeholder="至少 4 位"
                 className="w-full pl-10 pr-3 py-2.5 rounded-lg border border-warm-beige bg-white text-sm focus:outline-none focus:border-rose"
-                onKeyDown={(e) => e.key === 'Enter' && handleRegister()}
-              />
+                onKeyDown={(e) => e.key === 'Enter' && handleRegister()} />
             </div>
           </div>
 
-          {error && (
-            <p className="text-xs text-red-500">{error}</p>
-          )}
+          {error && <p className="text-xs text-red-500">{error}</p>}
 
-          <button
-            onClick={handleRegister}
-            disabled={loading}
-            className="w-full py-2.5 rounded-lg bg-rose text-white text-sm font-medium hover:bg-rose/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-          >
-            <UserPlus className="w-4 h-4" />
-            {loading ? '注册中...' : '注册'}
+          <button onClick={handleRegister} disabled={loading}
+            className="w-full py-2.5 rounded-lg bg-rose text-white text-sm font-medium hover:bg-rose/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
+            <UserPlus className="w-4 h-4" />{loading ? '注册中...' : '注册'}
           </button>
         </div>
 
         <p className="text-center text-xs text-warm-gray">
-          已有账号？{' '}
-          <Link to="/login" className="text-rose hover:underline">
-            登录
-          </Link>
+          已有账号？<Link to="/login" className="text-rose hover:underline">登录</Link>
         </p>
       </div>
     </div>

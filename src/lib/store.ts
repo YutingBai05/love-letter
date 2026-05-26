@@ -1,231 +1,291 @@
+import { supabase } from './supabase'
 import type { Postcard, Letter, Folder } from './types'
-import { getNickname } from './auth-store'
 
-const FOLDERS_KEY = 'love-letter-folders'
-const POSTCARDS_KEY = 'love-letter-postcards'
-const LETTERS_KEY = 'love-letter-letters'
-const CURRENT_FOLDER_KEY = 'love-letter-current-folder'
+// ===== Folders =====
 
-function generateId(): string {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
-}
+export async function getFolders(userRole?: 'owner' | 'invitee'): Promise<Folder[]> {
+  const { data: session } = await supabase.auth.getSession()
+  const userId = session.session?.user?.id
+  if (!userId) return []
 
-// --- Folders ---
+  let query = supabase.from('folders').select('*').order('created_at', { ascending: true })
 
-function defaultFolders(): Folder[] {
-  return [
-    { id: 'default', name: '日常', isLocked: false, createdBy: 'owner' },
-    { id: 'love', name: '情话', isLocked: false, createdBy: 'owner' },
-    { id: 'memory', name: '回忆', isLocked: false, createdBy: 'owner' },
-  ]
-}
+  // If paired, also get partner's folders
+  const { data: profile } = await supabase.from('profiles').select('paired_with').eq('id', userId).single()
+  const partnerId = profile?.paired_with
 
-function getAllFolders(): Folder[] {
-  try {
-    const raw = localStorage.getItem(FOLDERS_KEY)
-    if (!raw) {
-      const defaults = defaultFolders()
-      localStorage.setItem(FOLDERS_KEY, JSON.stringify(defaults))
-      return defaults
-    }
-    return JSON.parse(raw)
-  } catch {
-    return defaultFolders()
+  if (partnerId) {
+    query = query.or(`user_id.eq.${userId},user_id.eq.${partnerId}`)
+  } else {
+    query = query.eq('user_id', userId)
   }
+
+  const { data } = await query
+
+  const folders: Folder[] = (data || []).map((f) => ({
+    id: f.id,
+    name: f.name,
+    isLocked: f.is_locked,
+    createdBy: f.created_by,
+  }))
+
+  // Filter locked folders
+  if (userRole) {
+    return folders.filter((f) => {
+      if (f.isLocked) return f.createdBy === userRole
+      return true
+    })
+  }
+
+  return folders
 }
 
-function saveFolders(folders: Folder[]) {
-  localStorage.setItem(FOLDERS_KEY, JSON.stringify(folders))
-}
+export async function addFolder(name: string, createdBy: 'owner' | 'invitee'): Promise<Folder> {
+  const { data: session } = await supabase.auth.getSession()
+  const userId = session.session?.user?.id
+  if (!userId) throw new Error('Not logged in')
 
-export function getFolders(userRole?: 'owner' | 'invitee'): Folder[] {
-  const all = getAllFolders()
-  if (!userRole) return all
-  return all.filter((f) => {
-    if (f.isLocked) return f.createdBy === userRole
-    return true
-  })
-}
-
-export function addFolder(name: string, createdBy: 'owner' | 'invitee'): Folder {
-  const folders = getAllFolders()
-  const folder: Folder = {
-    id: generateId(),
+  const { data, error } = await supabase.from('folders').insert({
     name,
-    isLocked: false,
-    createdBy,
-  }
-  folders.push(folder)
-  saveFolders(folders)
-  return folder
-}
+    created_by: createdBy,
+    is_locked: false,
+    user_id: userId,
+  }).select().single()
 
-export function lockFolder(id: string) {
-  const folders = getAllFolders()
-  const f = folders.find((x) => x.id === id)
-  if (f) {
-    f.isLocked = true
-    saveFolders(folders)
+  if (error) throw error
+
+  return {
+    id: data.id,
+    name: data.name,
+    isLocked: data.is_locked,
+    createdBy: data.created_by,
   }
 }
 
-export function unlockFolder(id: string) {
-  const folders = getAllFolders()
-  const f = folders.find((x) => x.id === id)
-  if (f) {
-    f.isLocked = false
-    saveFolders(folders)
+export async function lockFolder(id: string) {
+  await supabase.from('folders').update({ is_locked: true }).eq('id', id)
+}
+
+export async function unlockFolder(id: string) {
+  await supabase.from('folders').update({ is_locked: false }).eq('id', id)
+}
+
+export async function deleteFolder(id: string) {
+  await supabase.from('folders').delete().eq('id', id)
+}
+
+export async function canModifyFolder(folderId: string, userRole: 'owner' | 'invitee'): Promise<boolean> {
+  const { data } = await supabase.from('folders').select('created_by').eq('id', folderId).single()
+  return data?.created_by === userRole
+}
+
+// ===== Postcards =====
+
+export async function getPostcards(): Promise<Postcard[]> {
+  const { data: session } = await supabase.auth.getSession()
+  const userId = session.session?.user?.id
+  if (!userId) return []
+
+  const { data: profile } = await supabase.from('profiles').select('paired_with').eq('id', userId).single()
+  const partnerId = profile?.paired_with
+
+  let query = supabase.from('postcards').select('*').order('created_at', { ascending: false })
+  if (partnerId) {
+    query = query.or(`author_id.eq.${userId},author_id.eq.${partnerId}`)
+  } else {
+    query = query.eq('author_id', userId)
   }
+
+  const { data } = await query
+  return (data || []).map(mapPostcard)
 }
 
-export function deleteFolder(id: string) {
-  const folders = getAllFolders().filter((f) => f.id !== id)
-  saveFolders(folders)
+export async function getPostcardsByFolder(folderId: string): Promise<Postcard[]> {
+  const all = await getPostcards()
+  return all.filter((p) => p.folderId === folderId)
 }
 
-export function canModifyFolder(folderId: string, userRole: 'owner' | 'invitee'): boolean {
-  const folder = getAllFolders().find((f) => f.id === folderId)
-  if (!folder) return false
-  return folder.createdBy === userRole
-}
-
-// --- Current folder selection ---
-
-export function getCurrentFolderId(): string {
-  return localStorage.getItem(CURRENT_FOLDER_KEY) || 'default'
-}
-
-export function setCurrentFolderId(id: string) {
-  localStorage.setItem(CURRENT_FOLDER_KEY, id)
-}
-
-// --- Postcards ---
-
-export function getPostcards(): Postcard[] {
-  try {
-    const raw = localStorage.getItem(POSTCARDS_KEY)
-    return raw ? JSON.parse(raw) : []
-  } catch {
-    return []
-  }
-}
-
-export function getPostcardsByFolder(folderId: string): Postcard[] {
-  return getPostcards()
-    .filter((p) => p.folderId === folderId)
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-}
-
-export function savePostcard(data: {
+export async function savePostcard(data: {
   folderId?: string
   content: string
   bgColor: string
   mood: string
-}): Postcard {
-  const postcards = getPostcards()
-  const postcard: Postcard = {
-    id: generateId(),
-    folderId: data.folderId || getCurrentFolderId(),
+  authorNickname: string
+}): Promise<Postcard> {
+  const sessionPromise = supabase.auth.getSession()
+  const sessionTimeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000))
+  const sessionResult = await Promise.race([sessionPromise, sessionTimeout])
+
+  if (!sessionResult) throw new Error('获取会话超时')
+  const userId = sessionResult.data.session?.user?.id
+  if (!userId) throw new Error('Not logged in')
+
+  console.log('[Store] Saving postcard for user:', userId)
+
+  // Convert non-UUID folder IDs to null
+  const folderId = data.folderId && /^[0-9a-f]{8}-[0-9a-f]{4}/i.test(data.folderId) ? data.folderId : null
+
+  const insertPromise = supabase.from('postcards').insert({
+    folder_id: folderId,
     content: data.content,
-    bgColor: data.bgColor,
+    bg_color: data.bgColor,
     mood: data.mood,
-    authorNickname: getNickname(),
-    createdAt: new Date().toISOString(),
+    author_nickname: data.authorNickname,
+    author_id: userId,
     read: false,
+  }).select().single()
+
+  const insertTimeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000))
+  const insertResult = await Promise.race([insertPromise, insertTimeout])
+
+  if (!insertResult) throw new Error('保存明信片超时，请重试')
+
+  const { data: result, error } = insertResult
+  if (error) {
+    console.error('[Store] savePostcard error:', error.message, error.details, error.hint)
+    throw new Error(error.message)
   }
-  postcards.unshift(postcard)
-  localStorage.setItem(POSTCARDS_KEY, JSON.stringify(postcards))
-  return postcard
+  console.log('[Store] Postcard saved:', result.id)
+  return mapPostcard(result)
 }
 
-export function getLatestPostcard(folderId?: string): Postcard | null {
-  const fid = folderId || getCurrentFolderId()
-  const list = getPostcardsByFolder(fid)
-  return list.length > 0 ? list[0] : null
+export async function getLatestPostcard(folderId?: string): Promise<Postcard | null> {
+  const all = await getPostcards()
+  const filtered = folderId ? all.filter((p) => p.folderId === folderId) : all
+  return filtered[0] || null
 }
 
-export function getRandomPostcard(folderId?: string): Postcard | null {
-  const fid = folderId || getCurrentFolderId()
-  const list = getPostcardsByFolder(fid)
-  if (list.length === 0) return null
-  const idx = Math.floor(Math.random() * list.length)
-  return list[idx]
+export async function getRandomPostcard(folderId?: string): Promise<Postcard | null> {
+  const all = await getPostcards()
+  const filtered = folderId ? all.filter((p) => p.folderId === folderId) : all
+  if (filtered.length === 0) return null
+  return filtered[Math.floor(Math.random() * filtered.length)]
 }
 
-export function getOnThisDayPostcard(folderId?: string): Postcard | null {
-  const fid = folderId || getCurrentFolderId()
+export async function getOnThisDayPostcard(folderId?: string): Promise<Postcard | null> {
+  const all = await getPostcards()
+  const filtered = folderId ? all.filter((p) => p.folderId === folderId) : all
   const today = new Date()
   const oneYearAgo = new Date(today)
   oneYearAgo.setFullYear(today.getFullYear() - 1)
-
   const targetStr = oneYearAgo.toISOString().slice(0, 10)
-
-  return (
-    getPostcardsByFolder(fid).find((p) => p.createdAt.slice(0, 10) === targetStr) ?? null
-  )
+  return filtered.find((p) => p.createdAt.slice(0, 10) === targetStr) || null
 }
 
-export function getUnreadCount(): number {
-  return getPostcards().filter((p) => !p.read).length
+export async function getUnreadCount(): Promise<number> {
+  const all = await getPostcards()
+  return all.filter((p) => !p.read).length
 }
 
-export function markAsRead(id: string) {
-  const postcards = getPostcards()
-  const idx = postcards.findIndex((p) => p.id === id)
-  if (idx !== -1 && !postcards[idx].read) {
-    postcards[idx].read = true
-    localStorage.setItem(POSTCARDS_KEY, JSON.stringify(postcards))
+export async function markAsRead(id: string) {
+  await supabase.from('postcards').update({ read: true }).eq('id', id)
+}
+
+// ===== Letters =====
+
+export async function getLetters(): Promise<Letter[]> {
+  const { data: session } = await supabase.auth.getSession()
+  const userId = session.session?.user?.id
+  if (!userId) return []
+
+  const { data: profile } = await supabase.from('profiles').select('paired_with').eq('id', userId).single()
+  const partnerId = profile?.paired_with
+
+  let query = supabase.from('letters').select('*').order('created_at', { ascending: false })
+  if (partnerId) {
+    query = query.or(`author_id.eq.${userId},author_id.eq.${partnerId}`)
+  } else {
+    query = query.eq('author_id', userId)
   }
+
+  const { data } = await query
+  return (data || []).map(mapLetter)
 }
 
-// --- Letters ---
-
-export function getLetters(): Letter[] {
-  try {
-    const raw = localStorage.getItem(LETTERS_KEY)
-    return raw ? JSON.parse(raw) : []
-  } catch {
-    return []
-  }
+export async function getLettersByFolder(folderId: string): Promise<Letter[]> {
+  const all = await getLetters()
+  return all.filter((l) => l.folderId === folderId)
 }
 
-export function getLettersByFolder(folderId: string): Letter[] {
-  return getLetters()
-    .filter((l) => l.folderId === folderId)
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-}
-
-export function saveLetter(data: {
+export async function saveLetter(data: {
   folderId?: string
   content: string
   paperTemplate: string
   fontFamily: string
-}): Letter {
-  const letters = getLetters()
-  const letter: Letter = {
-    id: generateId(),
-    folderId: data.folderId || getCurrentFolderId(),
+  authorNickname: string
+}): Promise<Letter> {
+  const sessionPromise = supabase.auth.getSession()
+  const sessionTimeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000))
+  const sessionResult = await Promise.race([sessionPromise, sessionTimeout])
+
+  if (!sessionResult) throw new Error('获取会话超时')
+  const userId = sessionResult.data.session?.user?.id
+  if (!userId) throw new Error('Not logged in')
+
+  const folderId = data.folderId && /^[0-9a-f]{8}-[0-9a-f]{4}/i.test(data.folderId) ? data.folderId : null
+
+  const insertPromise = supabase.from('letters').insert({
+    folder_id: folderId,
     content: data.content,
-    paperTemplate: data.paperTemplate,
-    fontFamily: data.fontFamily,
-    authorNickname: getNickname(),
-    createdAt: new Date().toISOString(),
+    paper_template: data.paperTemplate,
+    font_family: data.fontFamily,
+    author_nickname: data.authorNickname,
+    author_id: userId,
     read: false,
-  }
-  letters.unshift(letter)
-  localStorage.setItem(LETTERS_KEY, JSON.stringify(letters))
-  return letter
+  }).select().single()
+
+  const insertTimeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000))
+  const insertResult = await Promise.race([insertPromise, insertTimeout])
+
+  if (!insertResult) throw new Error('保存信件超时，请重试')
+
+  const { data: result, error } = insertResult
+  if (error) throw new Error(error.message)
+  return mapLetter(result)
 }
 
-export function getLetterUnreadCount(): number {
-  return getLetters().filter((l) => !l.read).length
+export async function getLetterUnreadCount(): Promise<number> {
+  const all = await getLetters()
+  return all.filter((l) => !l.read).length
 }
 
-export function markLetterAsRead(id: string) {
-  const letters = getLetters()
-  const idx = letters.findIndex((l) => l.id === id)
-  if (idx !== -1 && !letters[idx].read) {
-    letters[idx].read = true
-    localStorage.setItem(LETTERS_KEY, JSON.stringify(letters))
+export async function markLetterAsRead(id: string) {
+  await supabase.from('letters').update({ read: true }).eq('id', id)
+}
+
+// ===== Helpers =====
+
+function mapPostcard(r: Record<string, unknown>): Postcard {
+  return {
+    id: r.id as string,
+    folderId: (r.folder_id as string) || '',
+    content: (r.content as string) || '',
+    bgColor: (r.bg_color as string) || '#FFF8F0',
+    mood: (r.mood as string) || '',
+    authorNickname: (r.author_nickname as string) || '',
+    createdAt: (r.created_at as string) || '',
+    read: (r.read as boolean) || false,
   }
+}
+
+function mapLetter(r: Record<string, unknown>): Letter {
+  return {
+    id: r.id as string,
+    folderId: (r.folder_id as string) || '',
+    content: (r.content as string) || '',
+    paperTemplate: (r.paper_template as string) || 'blank',
+    fontFamily: (r.font_family as string) || 'serif',
+    authorNickname: (r.author_nickname as string) || '',
+    createdAt: (r.created_at as string) || '',
+    read: (r.read as boolean) || false,
+  }
+}
+
+// Legacy sync helper for current folder
+export function getCurrentFolderId(): string {
+  return localStorage.getItem('love-letter-current-folder') || 'default'
+}
+
+export function setCurrentFolderId(id: string) {
+  localStorage.setItem('love-letter-current-folder', id)
 }

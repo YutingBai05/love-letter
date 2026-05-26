@@ -15,8 +15,8 @@ interface PaperTemplateSelectorProps {
 
 const bgMap: Record<PaperTemplate, string> = {
   blank: 'bg-white',
-  lined: 'bg-[repeating-linear-gradient(transparent,transparent_27px,#d4c5b0_27px,#d4c5b0_28px)]',
-  grid: 'bg-[repeating-linear-gradient(#d4c5b0_0,#d4c5b0_1px,transparent_1px,transparent_20px),repeating-linear-gradient(90deg,#d4c5b0_0,#d4c5b0_1px,transparent_1px,transparent_20px)]',
+  lined: 'bg-[repeating-linear-gradient(transparent,transparent_27px,rgba(180,160,140,0.2)_27px,rgba(180,160,140,0.2)_28px)]',
+  grid: 'bg-[repeating-linear-gradient(rgba(180,160,140,0.15)_0,rgba(180,160,140,0.15)_1px,transparent_1px,transparent_20px),repeating-linear-gradient(90deg,rgba(180,160,140,0.15)_0,rgba(180,160,140,0.15)_1px,transparent_1px,transparent_20px)]',
 }
 
 export function getPaperBackground(template: PaperTemplate): string {

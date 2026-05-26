@@ -112,10 +112,10 @@ export function exportQA(answer: QAAnswer) {
 
 // --- Batch exports ---
 
-export function exportAllByType() {
-  const postcards = getPostcards()
-  const letters = getLetters()
-  const qas = getAnsweredQAHistory()
+export async function exportAllByType() {
+  const [postcards, letters, qas] = await Promise.all([
+    getPostcards(), getLetters(), getAnsweredQAHistory()
+  ])
 
   let combined = '# Love Letter 全量导出\n\n'
 
@@ -150,9 +150,9 @@ export function exportAllByType() {
   downloadFile(`${now}_LoveLetter_全量导出.md`, combined)
 }
 
-export function exportByFolder(folderId: string) {
-  const folders = getFolders()
-  const folder = folders.find((f) => f.id === folderId)
+export async function exportByFolder(folderId: string) {
+  const folders = await getFolders()
+  const folder = folders.find((f: any) => f.id === folderId)
   const folderName = folder?.name || folderId
   const postcards = getPostcardsByFolder(folderId)
   const letters = getLettersByFolder(folderId)

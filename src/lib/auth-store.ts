@@ -1,252 +1,285 @@
-const USERS_KEY = 'love-letter-users'
-const SESSION_KEY = 'love-letter-session'
-const INVITES_KEY = 'love-letter-invites'
+import { supabase } from './supabase'
 
 export interface AppUser {
   id: string
   email: string
   nickname: string
-  passwordHash: string
   role: 'owner' | 'invitee'
   pairedWith: string | null
 }
 
-interface InviteCode {
-  code: string
-  createdBy: string
-  expiresAt: string
-  used: boolean
-  usedBy: string | null
+function generateCode(): string {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+  let code = 'LL-'
+  for (let i = 0; i < 8; i++) code += chars[Math.floor(Math.random() * chars.length)]
+  return code
 }
 
-function generateId(): string {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
-}
+// ===== Auth =====
 
-function simpleHash(input: string): string {
-  let hash = 0
-  for (let i = 0; i < input.length; i++) {
-    const chr = input.charCodeAt(i)
-    hash = ((hash << 5) - hash) + chr
-    hash |= 0
-  }
-  return 'h_' + Math.abs(hash).toString(36)
-}
-
-// --- Users ---
-
-function getUsers(): AppUser[] {
-  try {
-    const raw = localStorage.getItem(USERS_KEY)
-    return raw ? JSON.parse(raw) : []
-  } catch {
-    return []
-  }
-}
-
-function saveUsers(users: AppUser[]) {
-  localStorage.setItem(USERS_KEY, JSON.stringify(users))
-}
-
-export function registerUser(
+export async function registerUser(
   email: string,
   password: string,
   nickname: string,
   role: 'owner' | 'invitee',
   inviteCode?: string
-): { user: AppUser; error?: string } {
-  const users = getUsers()
-  const lcEmail = email.toLowerCase().trim()
-
-  if (users.some((u) => u.email === lcEmail)) {
-    return { error: '该邮箱已注册', user: null! }
-  }
-
-  let pairedWith: string | null = null
-
-  if (role === 'invitee') {
-    if (!inviteCode) {
-      return { error: '被邀请方需要邀请码才能注册', user: null! }
-    }
-    const invite = getInviteByCode(inviteCode)
-    if (!invite) {
-      return { error: '邀请码无效', user: null! }
-    }
-    if (invite.used) {
-      return { error: '邀请码已被使用', user: null! }
-    }
-    if (new Date(invite.expiresAt) < new Date()) {
-      return { error: '邀请码已过期', user: null! }
-    }
-    // Find the owner
-    const owner = users.find((u) => u.id === invite.createdBy)
-    if (!owner || owner.pairedWith) {
-      return { error: '该邀请码对应的用户已配对', user: null! }
-    }
-    pairedWith = invite.createdBy
-    // Mark invite as used
-    markInviteUsed(inviteCode, lcEmail)
-    // Pair the owner with this user
-    owner.pairedWith = lcEmail
-  }
-
-  const user: AppUser = {
-    id: generateId(),
-    email: lcEmail,
-    nickname: nickname.trim() || lcEmail.split('@')[0],
-    passwordHash: simpleHash(password),
-    role,
-    pairedWith,
-  }
-
-  users.push(user)
-  saveUsers(users)
-
-  // Also update owner's pairedWith
-  if (pairedWith) {
-    const owner = users.find((u) => u.email === pairedWith)
-    if (owner) {
-      owner.pairedWith = lcEmail
-      saveUsers(users)
-    }
-  }
-
-  // Auto login
-  setSession(user)
-  return { user }
-}
-
-export function loginUser(email: string, password: string): { user: AppUser; error?: string } {
-  const users = getUsers()
-  const lcEmail = email.toLowerCase().trim()
-  const user = users.find((u) => u.email === lcEmail)
-
-  if (!user) {
-    return { error: '邮箱未注册', user: null! }
-  }
-  if (user.passwordHash !== simpleHash(password)) {
-    return { error: '密码错误', user: null! }
-  }
-
-  setSession(user)
-  return { user }
-}
-
-// --- Session ---
-
-export function getSession(): AppUser | null {
+): Promise<{ user: AppUser | null; error?: string }> {
   try {
-    const raw = localStorage.getItem(SESSION_KEY)
-    if (!raw) return null
-    const session = JSON.parse(raw)
-    const users = getUsers()
-    return users.find((u) => u.id === session.userId) || null
-  } catch {
-    return null
+    const lcEmail = email.toLowerCase().trim()
+    const displayNickname = nickname.trim() || lcEmail.split('@')[0]
+
+    console.log('[Register] Starting signup for:', lcEmail)
+
+    const signUpPromise = supabase.auth.signUp({ email: lcEmail, password })
+    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000))
+    const raceResult = await Promise.race([signUpPromise, timeoutPromise])
+
+    if (!raceResult) {
+      console.log('[Register] signUp timed out, checking session...')
+      const { data: sessionData } = await supabase.auth.getSession()
+      const sessionUserId = sessionData.session?.user?.id
+      if (sessionUserId) {
+        return getUserFromSession(sessionUserId, lcEmail).then((r) => ({ user: r.user }))
+      }
+      return { user: null, error: '注册超时，请重试' }
+    }
+
+    const { data: authData, error: authError } = raceResult
+    console.log('[Register] Signup response:', authError ? 'error: ' + authError.message : 'success, userId: ' + authData.user?.id)
+
+    if (authError) {
+      return { user: null, error: authError.message }
+    }
+
+    const userId = authData.user?.id
+    if (!userId) {
+      return { user: null, error: '注册失败，请重试' }
+    }
+
+    // Build user object immediately (even without profile)
+    const user: AppUser = {
+      id: userId,
+      email: lcEmail,
+      nickname: displayNickname,
+      role,
+      pairedWith: null,
+    }
+
+    let pairedWith: string | null = null
+
+    if (role === 'invitee') {
+      if (!inviteCode) return { user: null, error: '被邀请方需要邀请码' }
+      const { data: invite } = await supabase.from('invite_codes').select('*').eq('code', inviteCode).maybeSingle()
+      if (!invite) return { user: null, error: '邀请码无效' }
+      if (invite.used) return { user: null, error: '邀请码已被使用' }
+      if (new Date(invite.expires_at) < new Date()) return { user: null, error: '邀请码已过期' }
+      pairedWith = invite.created_by
+      user.pairedWith = pairedWith
+      await supabase.from('invite_codes').update({ used: true, used_by: userId }).eq('code', inviteCode)
+      await supabase.from('profiles').update({ paired_with: userId }).eq('id', pairedWith)
+    }
+
+    // Try to create profile (non-blocking - user is already valid)
+    try {
+      const { error: profileError } = await supabase.from('profiles').insert({
+        id: userId, email: lcEmail, nickname: displayNickname, role, paired_with: pairedWith,
+      })
+      if (profileError) {
+        console.warn('[Register] Profile insert error (non-fatal):', profileError.message)
+      }
+    } catch (e) {
+      console.warn('[Register] Profile insert failed (non-fatal):', e)
+    }
+
+    console.log('[Register] Success, returning user')
+    return { user }
+  } catch (e) {
+    console.error('[Register] Unexpected error:', e)
+    return { user: null, error: e instanceof Error ? e.message : '注册出错' }
   }
 }
 
-function setSession(user: AppUser) {
-  localStorage.setItem(SESSION_KEY, JSON.stringify({ userId: user.id, loginAt: Date.now() }))
-}
-
-export function logout() {
-  localStorage.removeItem(SESSION_KEY)
-}
-
-// --- Invites ---
-
-function getInvites(): InviteCode[] {
+export async function loginUser(email: string, password: string): Promise<{ user: AppUser | null; error?: string }> {
   try {
-    const raw = localStorage.getItem(INVITES_KEY)
-    return raw ? JSON.parse(raw) : []
-  } catch {
-    return []
+    const lcEmail = email.toLowerCase().trim()
+    console.log('[Login] Starting for:', lcEmail)
+
+    // signInWithPassword may hang in some Supabase versions; use race with timeout
+    const signInPromise = supabase.auth.signInWithPassword({ email: lcEmail, password })
+    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000))
+
+    const result = await Promise.race([signInPromise, timeoutPromise])
+
+    if (!result) {
+      // Timeout: check if session was established anyway via onAuthStateChange
+      console.log('[Login] signInWithPassword timed out, checking session...')
+      const { data: sessionData } = await supabase.auth.getSession()
+      const sessionUserId = sessionData.session?.user?.id
+      if (!sessionUserId) return { user: null, error: '登录超时，请重试' }
+      // Session exists despite timeout - proceed
+      return getUserFromSession(sessionUserId, lcEmail)
+    }
+
+    const { data, error } = result
+    console.log('[Login] Signin response:', error ? 'error: ' + error.message : 'success, userId: ' + data.user?.id)
+
+    if (error) {
+      return { user: null, error: error.message === 'Invalid login credentials' ? '邮箱或密码错误' : error.message }
+    }
+
+    const userId = data.user?.id
+    if (!userId) return { user: null, error: '登录失败' }
+
+    return getUserFromSession(userId, lcEmail)
+  } catch (e) {
+    console.error('[Login] Unexpected error:', e)
+    return { user: null, error: e instanceof Error ? e.message : '登录出错' }
   }
 }
 
-function saveInvites(invites: InviteCode[]) {
-  localStorage.setItem(INVITES_KEY, JSON.stringify(invites))
-}
+// ===== Session =====
 
-function getInviteByCode(code: string): InviteCode | null {
-  return getInvites().find((i) => i.code === code) || null
-}
+export async function getSession(): Promise<AppUser | null> {
+  const { data } = await supabase.auth.getSession()
+  const userId = data.session?.user?.id
+  if (!userId) return null
 
-function markInviteUsed(code: string, usedBy: string) {
-  const invites = getInvites()
-  const invite = invites.find((i) => i.code === code)
-  if (invite) {
-    invite.used = true
-    invite.usedBy = usedBy
-    saveInvites(invites)
+  const { data: profile } = await supabase.from('profiles').select('*').eq('id', userId).single()
+  if (!profile) return null
+
+  return {
+    id: userId,
+    email: profile.email,
+    nickname: profile.nickname,
+    role: profile.role,
+    pairedWith: profile.paired_with,
   }
 }
 
-export function generateInviteCode(): string {
-  const user = getSession()
-  if (!user || user.role !== 'owner') throw new Error('只有邀请方可以生成邀请码')
+export async function logout() {
+  await supabase.auth.signOut()
+}
+
+// ===== Invites =====
+
+export async function generateInviteCode(): Promise<string> {
+  const { data } = await supabase.auth.getSession()
+  const userId = data.session?.user?.id
+  if (!userId) throw new Error('请先登录')
 
   // Invalidate old unused invites
-  const invites = getInvites().filter(
-    (i) => i.createdBy !== user.id || i.used
-  )
+  await supabase.from('invite_codes')
+    .update({ used: true })
+    .eq('created_by', userId)
+    .eq('used', false)
 
-  const code = 'LL-' + generateId().toUpperCase()
-  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
-
-  invites.push({
+  const code = generateCode()
+  await supabase.from('invite_codes').insert({
     code,
-    createdBy: user.id,
-    expiresAt,
-    used: false,
-    usedBy: null,
+    created_by: userId,
+    expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
   })
 
-  saveInvites(invites)
   return code
 }
 
-export function getMyInviteCode(): string | null {
-  const user = getSession()
-  if (!user || user.role !== 'owner') return null
+export async function getMyInviteCode(): Promise<string | null> {
+  const { data } = await supabase.auth.getSession()
+  const userId = data.session?.user?.id
+  if (!userId) return null
 
-  const invites = getInvites()
-  const active = invites.find(
-    (i) => i.createdBy === user.id && !i.used && new Date(i.expiresAt) > new Date()
-  )
-  return active?.code || null
+  const { data: invite } = await supabase
+    .from('invite_codes')
+    .select('code')
+    .eq('created_by', userId)
+    .eq('used', false)
+    .gt('expires_at', new Date().toISOString())
+    .order('expires_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  return invite?.code || null
 }
 
-// --- Partner ---
+// ===== Partner =====
 
-export function getPartner(): AppUser | null {
-  const user = getSession()
-  if (!user || !user.pairedWith) return null
-  const users = getUsers()
-  return users.find((u) => u.email === user.pairedWith) || null
-}
+export async function getPartner(): Promise<AppUser | null> {
+  const session = await getSession()
+  if (!session?.pairedWith) return null
 
-export function getPartnerEmail(): string | null {
-  const user = getSession()
-  return user?.pairedWith || null
-}
+  const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.pairedWith).single()
+  if (!profile) return null
 
-// --- Nickname ---
-
-export function getNickname(): string {
-  const user = getSession()
-  return user?.nickname || user?.email?.split('@')[0] || ''
-}
-
-export function setNickname(nickname: string) {
-  const user = getSession()
-  if (!user) return
-  const users = getUsers()
-  const u = users.find((x) => x.id === user.id)
-  if (u) {
-    u.nickname = nickname.trim() || user.email.split('@')[0]
-    saveUsers(users)
-    setSession(u)
+  return {
+    id: profile.id,
+    email: profile.email,
+    nickname: profile.nickname,
+    role: profile.role,
+    pairedWith: profile.paired_with,
   }
+}
+
+export async function getPartnerEmail(): Promise<string | null> {
+  const session = await getSession()
+  if (!session?.pairedWith) return null
+
+  const { data: profile } = await supabase.from('profiles').select('email').eq('id', session.pairedWith).single()
+  return profile?.email || null
+}
+
+// ===== Nickname =====
+
+export async function getNickname(): Promise<string> {
+  const session = await getSession()
+  return session?.nickname || session?.email?.split('@')[0] || ''
+}
+
+export async function setNickname(nickname: string) {
+  const { data } = await supabase.auth.getSession()
+  const userId = data.session?.user?.id
+  if (!userId) return
+
+  await supabase.from('profiles').update({ nickname: nickname.trim() }).eq('id', userId)
+}
+
+// Export for compatibility with sync calls (used in UI init)
+export function getSessionSync(): AppUser | null {
+  return null
+}
+
+// ===== Helper =====
+
+async function getUserFromSession(userId: string, email: string): Promise<{ user: AppUser; error?: undefined }> {
+  const { data: profile } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle()
+
+  console.log('[Login] Profile lookup:', profile ? 'found' : 'not found')
+
+  const user: AppUser = {
+    id: userId,
+    email: profile?.email || email,
+    nickname: profile?.nickname || email.split('@')[0],
+    role: profile?.role || 'owner',
+    pairedWith: profile?.paired_with || null,
+  }
+
+  if (!profile) {
+    console.log('[Login] Profile missing, attempting to create...')
+    try {
+      await supabase.from('profiles').insert({
+        id: userId, email, nickname: user.nickname, role: 'owner',
+      })
+      // Create default folders for new user
+      const defaults = [
+        { name: '日常', created_by: 'owner', user_id: userId, is_locked: false },
+        { name: '情话', created_by: 'owner', user_id: userId, is_locked: false },
+        { name: '回忆', created_by: 'owner', user_id: userId, is_locked: false },
+      ]
+      await supabase.from('folders').insert(defaults)
+    } catch (e) {
+      console.warn('[Login] Profile/folder insert failed (non-fatal):', e)
+    }
+  }
+
+  console.log('[Login] Success')
+  return { user }
 }
