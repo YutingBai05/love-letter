@@ -86,8 +86,19 @@ export async function getPostcards(): Promise<Postcard[]> {
   const userId = session.session?.user?.id
   if (!userId) return []
 
-  const { data: profile } = await supabase.from('profiles').select('paired_with').eq('id', userId).single()
-  const partnerId = profile?.paired_with
+  // Get partner ID via REST (bypass SDK hanging issue)
+  let partnerId: string | null = null
+  try {
+    const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/rest/v1/profiles?select=paired_with&id=eq.${userId}`, {
+      headers: {
+        apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+      },
+      signal: AbortSignal.timeout(5000),
+    })
+    const data = await resp.json()
+    partnerId = data?.[0]?.paired_with || null
+  } catch { /* ignore */ }
 
   let query = supabase.from('postcards').select('*').order('created_at', { ascending: false })
   if (partnerId) {
@@ -188,8 +199,18 @@ export async function getLetters(): Promise<Letter[]> {
   const userId = session.session?.user?.id
   if (!userId) return []
 
-  const { data: profile } = await supabase.from('profiles').select('paired_with').eq('id', userId).single()
-  const partnerId = profile?.paired_with
+  let partnerId: string | null = null
+  try {
+    const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/rest/v1/profiles?select=paired_with&id=eq.${userId}`, {
+      headers: {
+        apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+      },
+      signal: AbortSignal.timeout(5000),
+    })
+    const data = await resp.json()
+    partnerId = data?.[0]?.paired_with || null
+  } catch { /* ignore */ }
 
   let query = supabase.from('letters').select('*').order('created_at', { ascending: false })
   if (partnerId) {
