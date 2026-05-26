@@ -144,7 +144,7 @@ export async function importQuestions(items: { category: string; question: strin
   for (const item of items) {
     if (!item.category || !item.question) continue
     if (!existing.some((q) => q.category === item.category && q.question === item.question)) {
-      try { await restPost('/qa_questions', { category: item.category, question: item.question, created_by: session.user.id }); added++ } catch {}
+      try { await restPost('/qa_questions', { category: item.category, question: item.question, created_by: s.data.session.user.id }); added++ } catch {}
     }
   }
   return added
