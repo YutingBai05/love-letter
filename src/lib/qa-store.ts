@@ -116,8 +116,12 @@ export async function seedPresetQuestions() {
 export async function getQuestions(): Promise<QAQuestion[]> {
   try {
     const data = await restGet('/qa_questions?select=*&order=created_at.asc')
+    console.log('[QA] Questions loaded:', data?.length)
     return (data || []).map((q: any) => ({ id: q.id, category: q.category, question: q.question }))
-  } catch { return [] }
+  } catch (e) {
+    console.error('[QA] getQuestions error:', e)
+    return []
+  }
 }
 
 export async function getCategories(): Promise<string[]> {
