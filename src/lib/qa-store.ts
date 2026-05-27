@@ -217,12 +217,16 @@ export async function getAnsweredQAHistory(): Promise<QAAnswer[]> {
   return withAny
 }
 
-export async function getPendingList(): Promise<QAAnswer[]> {
+export async function getPendingForMe(): Promise<QAAnswer[]> {
   const all = await getAnswers()
-  // Only one side answered (regardless of which field)
-  return all.filter((a) =>
-    (a.myAnswer && !a.partnerAnswer) || (!a.myAnswer && a.partnerAnswer)
-  )
+  // Partner answered, I haven't (my_answer is empty, partner_answer has value)
+  return all.filter((a) => !a.myAnswer && a.partnerAnswer)
+}
+
+export async function getWaitingForPartner(): Promise<QAAnswer[]> {
+  const all = await getAnswers()
+  // I answered, partner hasn't (my_answer has value, partner_answer empty)
+  return all.filter((a) => a.myAnswer && !a.partnerAnswer)
 }
 
 // ===== Helpers =====
