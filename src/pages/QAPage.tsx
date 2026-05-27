@@ -4,7 +4,7 @@ import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
 import { Shuffle, Send, Eye, Sparkles, Trash2, Plus, Upload, History, MessageCircle, BookOpen, RefreshCw } from 'lucide-react'
 import {
-  getQuestions, getCategories, getAnsweredQAHistory,
+  getQuestions, getCategories, getAnsweredQAHistory, getPendingForMe,
   submitMyAnswer, submitPartnerAnswer, saveAIAnalysis,
   addQuestion, deleteQuestion, importQuestions,
   getAIKey, getAIModel, getAIEndpoint, getConfiguredProviders, getProviderLabel,
@@ -41,6 +41,8 @@ export function QAPage() {
   const [addCategory, setAddCategory] = useState('关于我们')
   const [importMsg, setImportMsg] = useState('')
 
+  const [pendingList, setPendingList] = useState<QAAnswer[]>([])
+
   const refreshData = useCallback(async () => {
     const [qs, cats, hist] = await Promise.all([getQuestions(), getCategories(), getAnsweredQAHistory()])
     console.log('[QA] Questions:', qs.length, 'Categories:', cats, 'History:', hist.length)
@@ -48,6 +50,9 @@ export function QAPage() {
     setCategories(cats)
     setHistory(hist)
     if (cats.length > 0 && !cats.includes(addCategory)) setAddCategory(cats[0])
+    // Load pending (partner answered, I haven't)
+    const pending = await getPendingForMe(qs.map((q) => q.id))
+    setPendingList(pending)
   }, [addCategory])
 
   useEffect(() => { seedPresetQuestions().then(refreshData) }, [dataVersion, refreshData])
@@ -207,6 +212,38 @@ export function QAPage() {
                   {unansweredQuestions.length > 0 ? `从未答的 ${unansweredQuestions.length} 道题中随机抽取` : '🎉 全部答完了！'}
                 </span>
               </button>
+            </div>
+          )}
+
+          {/* 待回答：对方已答，我还没答 */}
+          {step === 'idle' && pendingList.length > 0 && (
+            <div className="bg-white/70 rounded-xl border border-gold/30 shadow-sm overflow-hidden">
+              <div className="px-4 py-2 border-b border-warm-beige bg-gold/5">
+                <span className="text-xs font-medium text-ink-brown">待回答</span>
+                <span className="text-xs text-warm-gray ml-2">对方已回答，等你回复</span>
+              </div>
+              <div className="divide-y divide-warm-beige/50">
+                {pendingList.map((a) => (
+                  <button
+                    key={a.id}
+                    onClick={() => {
+                      setCurrentQuestion(questions.find((q) => q.id === a.questionId) || null)
+                      setCurrentAnswer(a)
+                      setStep('picked')
+                      setRevealPartner(false)
+                      setAiText('')
+                      myEditor?.commands.clearContent()
+                    }}
+                    className="w-full px-4 py-3 text-left hover:bg-warm-beige/20 transition-colors flex items-center justify-between"
+                  >
+                    <div>
+                      <span className="text-xs text-gold font-medium">{a.category}</span>
+                      <p className="text-sm text-ink-brown mt-0.5">{a.question}</p>
+                    </div>
+                    <span className="text-xs text-rose shrink-0 ml-2">去回答 →</span>
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 

@@ -195,9 +195,15 @@ export async function saveAIAnalysis(qid: string, aiAnalysis: string) {
 export async function getAnsweredQAHistory(): Promise<QAAnswer[]> {
   const answers = await getAnswers()
   console.log('[QA] All answers:', answers.length)
-  const completed = answers.filter((a) => a.myAnswer && a.partnerAnswer)
-  console.log('[QA] Completed (both answered):', completed.length)
-  return completed
+  const withAny = answers.filter((a) => a.myAnswer || a.partnerAnswer)
+  console.log('[QA] With any answer:', withAny.length)
+  return withAny
+}
+
+export async function getPendingForMe(questionIds: string[]): Promise<QAAnswer[]> {
+  if (questionIds.length === 0) return []
+  const all = await getAnswers()
+  return all.filter((a) => a.partnerAnswer && !a.myAnswer)
 }
 
 // ===== Helpers =====
