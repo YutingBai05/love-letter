@@ -12,6 +12,7 @@ import { FontSize } from '@tiptap/extension-text-style/font-size'
 import { useAuth } from '@/components/AuthProvider'
 import { getSetting } from '@/lib/settings-store'
 import { EditorShell } from './EditorShell'
+import { PreviewModal } from './PreviewModal'
 import { EditorToolbar } from './EditorToolbar'
 import { ColorPicker } from './ColorPicker'
 import { MoodSelector } from './MoodSelector'
@@ -28,6 +29,7 @@ export function PostcardEditor() {
   const [folderId, setFolderId] = useState(getCurrentFolderId)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
+  const [preview, setPreview] = useState(false)
   const savedId = useRef<string | null>(null)
   const isTrimming = useRef(false)
   const navigate = useNavigate()
@@ -106,7 +108,7 @@ export function PostcardEditor() {
           <ColorPicker value={bgColor} onChange={setBgColor} />
         </div>
       }
-      onSave={handleSave} onPreview={() => alert('预览功能将在后续开发')}
+      onSave={handleSave} onPreview={() => setPreview(true)}
       onSend={handleSend} sendDisabled={isOverLimit || charCount === 0}
       saveLabel={saved ? '已保存 ✓' : '保存'}>
       <div style={{ backgroundColor: bgColor }} className="transition-colors duration-300">
@@ -117,6 +119,12 @@ export function PostcardEditor() {
         {isOverLimit && <span className="text-red-500">已超出字数限制</span>}
       </div>
     </EditorShell>
+      <PreviewModal open={preview} onClose={() => setPreview(false)} title="明信片预览">
+        <div style={{ backgroundColor: bgColor }} className="min-h-[200px] p-6 rounded-xl">
+          {mood && <div className="text-right text-2xl mb-3">{mood}</div>}
+          <EditorContent editor={editor} />
+        </div>
+      </PreviewModal>
     </>
   )
 }

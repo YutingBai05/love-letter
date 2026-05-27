@@ -12,6 +12,7 @@ import TextAlign from '@tiptap/extension-text-align'
 import { useAuth } from '@/components/AuthProvider'
 import { getSetting } from '@/lib/settings-store'
 import { EditorShell } from './EditorShell'
+import { PreviewModal } from './PreviewModal'
 import { EditorToolbar } from './EditorToolbar'
 import { PaperTemplateSelector, getPaperBackground, type PaperTemplate } from './PaperTemplateSelector'
 import { FontSelector, getFontFamily } from './FontSelector'
@@ -25,6 +26,7 @@ export function LetterEditor() {
   const [fontFamily, setFontFamily] = useState('serif')
   const [folderId, setFolderId] = useState(getCurrentFolderId)
   const [saved, setSaved] = useState(false)
+  const [preview, setPreview] = useState(false)
   const savedId = useRef<string | null>(null)
   const navigate = useNavigate()
 
@@ -63,6 +65,7 @@ export function LetterEditor() {
   }, [editor, paperTemplate, fontFamily, folderId, user?.nickname, navigate])
 
   return (
+    <>
     <EditorShell title="写一封信" subtitle={getSetting('subtitle_letter')}
       bottomToolbar={
         <div className="space-y-3">
@@ -77,11 +80,18 @@ export function LetterEditor() {
           <FontSelector value={fontFamily} onChange={setFontFamily} />
         </div>
       }
-      onSave={handleSave} onPreview={() => alert('预览功能将在后续开发')}
+      onSave={handleSave} onPreview={() => setPreview(true)}
       onSend={handleSend} saveLabel={saved ? '已保存 ✓' : '保存'}>
       <div className={getPaperBackground(paperTemplate)}>
         <EditorContent editor={editor} />
       </div>
     </EditorShell>
+      <PreviewModal open={preview} onClose={() => setPreview(false)} title="信件预览">
+        <div className={`min-h-[300px] p-8 rounded-xl ${getPaperBackground(paperTemplate)}`}
+          style={{ fontFamily: getFontFamily(fontFamily) }}>
+          <EditorContent editor={editor} />
+        </div>
+      </PreviewModal>
+    </>
   )
 }
