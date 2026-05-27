@@ -85,24 +85,36 @@ export function QAPage() {
     partnerEditor?.commands.clearContent()
   }, [unansweredQuestions, myEditor, partnerEditor])
 
+  const [submitError, setSubmitError] = useState('')
+
   const handleSubmitMyAnswer = useCallback(async () => {
     if (!currentQuestion) return
     const html = myEditor?.getHTML() ?? ''
     if (!html.trim() || html === '<p></p>') return
-    const answer = await submitMyAnswer(currentQuestion.id, html, user?.nickname || '')
-    setCurrentAnswer(answer)
-    setStep('myAnswered')
+    setSubmitError('')
+    try {
+      const answer = await submitMyAnswer(currentQuestion.id, html, user?.nickname || '')
+      setCurrentAnswer(answer)
+      setStep('myAnswered')
+    } catch (e) {
+      setSubmitError(e instanceof Error ? e.message : '提交失败')
+    }
   }, [currentQuestion, myEditor, user?.nickname])
 
   const handleSubmitPartnerAnswer = useCallback(async () => {
     if (!currentQuestion) return
     const html = partnerEditor?.getHTML() ?? ''
     if (!html.trim() || html === '<p></p>') return
-    const partner = await getPartner()
-    const answer = await submitPartnerAnswer(currentQuestion.id, html, partner?.nickname || '对方')
-    setCurrentAnswer(answer)
-    setStep('revealed')
-    setDataVersion((v) => v + 1)
+    setSubmitError('')
+    try {
+      const partner = await getPartner()
+      const answer = await submitPartnerAnswer(currentQuestion.id, html, partner?.nickname || '对方')
+      setCurrentAnswer(answer)
+      setStep('revealed')
+      setDataVersion((v) => v + 1)
+    } catch (e) {
+      setSubmitError(e instanceof Error ? e.message : '提交失败')
+    }
   }, [currentQuestion, partnerEditor])
 
   const handleAnalyze = useCallback(async (provider: AIProvider) => {
@@ -247,6 +259,12 @@ export function QAPage() {
             </div>
           )}
 
+          {submitError && (
+            <div className="bg-red-50 border border-red-200 text-red-600 text-sm rounded-lg p-3">
+              {submitError}
+            </div>
+          )}
+
           {(step !== 'idle') && currentQuestion && (
             <>
               <div className="bg-rose/5 rounded-xl border border-rose/20 p-5">
@@ -366,7 +384,7 @@ export function QAPage() {
                     <div className="flex items-center gap-2 mb-3"><Sparkles className="w-5 h-5 text-gold" /><h3 className="text-sm font-medium text-ink-brown">AI 分析结果</h3></div>
                     <div className="prose prose-sm max-w-none text-ink-brown whitespace-pre-wrap leading-relaxed">{aiText}</div>
                   </div>
-                  <button onClick={() => { setStep('idle'); setCurrentQuestion(null); setCurrentAnswer(null); setRevealPartner(false); setAiText('') }}
+                  <button onClick={() => { setStep('idle'); setCurrentQuestion(null); setCurrentAnswer(null); setRevealPartner(false); setAiText(''); setSubmitError('') }}
                     className="w-full py-3 rounded-lg border border-rose text-rose text-sm hover:bg-rose/5 transition-colors">再来一题</button>
                 </div>
               )}

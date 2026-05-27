@@ -24,25 +24,32 @@ async function restGet(path: string) {
 }
 
 async function restPost(path: string, body: any) {
+  console.log('[REST] POST', path, body)
   const resp = await fetch(`${REST_URL}${path}`, {
     method: 'POST',
-    headers: headers(body ? { Prefer: 'return=representation' } : {}),
+    headers: headers({ Prefer: 'return=representation' }),
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(8000),
   })
-  if (!resp.ok) throw new Error(`REST ${resp.status}`)
-  if (resp.status === 201) return resp.json()
-  return null
+  const text = await resp.text()
+  console.log('[REST] POST response:', resp.status, text.slice(0, 200))
+  if (!resp.ok) throw new Error(`POST ${resp.status}: ${text}`)
+  return text ? JSON.parse(text) : null
 }
 
 async function restPatch(path: string, body: any) {
+  console.log('[REST] PATCH', path)
   const resp = await fetch(`${REST_URL}${path}`, {
     method: 'PATCH',
     headers: headers(),
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(8000),
   })
-  if (!resp.ok) throw new Error(`REST ${resp.status}`)
+  if (!resp.ok) {
+    const text = await resp.text()
+    console.error('[REST] PATCH error:', resp.status, text)
+    throw new Error(`PATCH ${resp.status}: ${text}`)
+  }
 }
 
 async function restDelete(path: string) {
