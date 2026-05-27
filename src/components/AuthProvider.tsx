@@ -1,5 +1,4 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react'
-import { supabase } from '@/lib/supabase'
 import { loadSettings } from '@/lib/settings-store'
 import type { AppUser } from '@/lib/auth-store'
 
@@ -11,33 +10,52 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType>({ user: null, loading: true, refresh: async () => {} })
 
+function getSessionFromLocal(): { userId: string; email: string } | null {
+  try {
+    // Read Supabase session from localStorage
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i)
+      if (key?.startsWith('sb-') && key.endsWith('-auth-token')) {
+        const raw = localStorage.getItem(key)
+        if (raw) {
+          const parsed = JSON.parse(raw)
+          const userId = parsed?.user?.id
+          const email = parsed?.user?.email
+          if (userId) return { userId, email: email || '' }
+        }
+      }
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
 async function loadUser(): Promise<AppUser | null> {
   try {
-    const sessionPromise = supabase.auth.getSession()
-    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000))
-    const raceResult = await Promise.race([sessionPromise, timeoutPromise])
+    const local = getSessionFromLocal()
+    if (!local) return null
 
-    if (!raceResult) {
-      console.warn('[Auth] getSession timed out')
-      return null
-    }
+    const { userId, email } = local
 
-    const session = raceResult.data.session
-    if (!session?.user?.id) return null
-
-    const userId = session.user.id
-    const email = session.user.email || ''
-
-    // Try to get profile, but don't fail if it's missing
-    let profile = null
+    // Get profile via REST (fast, no SDK)
+    let profile: any = null
     try {
-      const profilePromise = supabase.from('profiles').select('*').eq('id', userId).maybeSingle()
-      const profileTimeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000))
-      const profileResult = await Promise.race([profilePromise, profileTimeout])
-      profile = profileResult?.data
-    } catch {
-      // profile query failed, continue without it
-    }
+      const resp = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/profiles?id=eq.${userId}&select=*`,
+        {
+          headers: {
+            apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+          },
+          signal: AbortSignal.timeout(5000),
+        }
+      )
+      if (resp.ok) {
+        const data = await resp.json()
+        profile = data?.[0]
+      }
+    } catch { /* ignore */ }
 
     console.log('[Auth] User loaded:', email, profile ? '(profile found)' : '(no profile)')
 
@@ -64,29 +82,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   useEffect(() => {
-    // Load settings and user in parallel
     Promise.all([loadSettings(), refresh()]).finally(() => {
       setLoading(false)
     })
-
-    const { data: listener } = supabase.auth.onAuthStateChange(async (event) => {
-      console.log('[Auth] State change:', event)
-      if (event === 'SIGNED_OUT') {
-        setUser(null)
-        return
-      }
-      // For TOKEN_REFRESHED, USER_UPDATED etc., just refresh the user without clearing
-      try {
-        const u = await loadUser()
-        if (u) setUser(u)
-      } catch {
-        // silently ignore refresh errors
-      }
-    })
-
-    return () => {
-      listener.subscription.unsubscribe()
-    }
   }, [])
 
   return (
