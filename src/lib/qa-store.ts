@@ -170,10 +170,16 @@ export async function getAnswers(): Promise<QAAnswer[]> {
 }
 
 export async function submitMyAnswer(qid: string, myAnswer: string, myNickname: string): Promise<QAAnswer> {
-  const existing = await restGet(`/qa_answers?select=id&question_id=eq.${qid}`)
+  const existing = await restGet(`/qa_answers?select=*&question_id=eq.${qid}`)
   if (existing?.length > 0) {
-    const id = existing[0].id
-    await restPatch(`/qa_answers?id=eq.${id}`, { my_answer: myAnswer, my_nickname: myNickname })
+    const row = existing[0]
+    const id = row.id
+    // Fill the empty side
+    if (!row.my_answer) {
+      await restPatch(`/qa_answers?id=eq.${id}`, { my_answer: myAnswer, my_nickname: myNickname })
+    } else {
+      await restPatch(`/qa_answers?id=eq.${id}`, { partner_answer: myAnswer, partner_nickname: myNickname, answered_at: new Date().toISOString() })
+    }
     const updated = await restGet(`/qa_answers?id=eq.${id}`)
     return mapAnswer(updated[0])
   }
@@ -211,10 +217,12 @@ export async function getAnsweredQAHistory(): Promise<QAAnswer[]> {
   return withAny
 }
 
-export async function getPendingForMe(questionIds: string[]): Promise<QAAnswer[]> {
-  if (questionIds.length === 0) return []
+export async function getPendingList(): Promise<QAAnswer[]> {
   const all = await getAnswers()
-  return all.filter((a) => a.partnerAnswer && !a.myAnswer)
+  // Only one side answered (regardless of which field)
+  return all.filter((a) =>
+    (a.myAnswer && !a.partnerAnswer) || (!a.myAnswer && a.partnerAnswer)
+  )
 }
 
 // ===== Helpers =====

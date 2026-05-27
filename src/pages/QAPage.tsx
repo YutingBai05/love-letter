@@ -4,7 +4,7 @@ import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
 import { Shuffle, Send, Eye, Sparkles, Trash2, Plus, Upload, History, MessageCircle, BookOpen, RefreshCw } from 'lucide-react'
 import {
-  getQuestions, getCategories, getAnsweredQAHistory, getPendingForMe,
+  getQuestions, getCategories, getAnsweredQAHistory, getPendingList,
   submitMyAnswer, submitPartnerAnswer, saveAIAnalysis,
   addQuestion, deleteQuestion, importQuestions,
   getAIKey, getAIModel, getAIEndpoint, getConfiguredProviders, getProviderLabel,
@@ -50,8 +50,8 @@ export function QAPage() {
     setCategories(cats)
     setHistory(hist)
     if (cats.length > 0 && !cats.includes(addCategory)) setAddCategory(cats[0])
-    // Load pending (partner answered, I haven't)
-    const pending = await getPendingForMe(qs.map((q) => q.id))
+    // Load pending (only one side answered)
+    const pending = await getPendingList()
     setPendingList(pending)
   }, [addCategory])
 
@@ -95,6 +95,7 @@ export function QAPage() {
     try {
       const answer = await submitMyAnswer(currentQuestion.id, html, user?.nickname || '')
       setCurrentAnswer(answer)
+      setDataVersion((v) => v + 1)
       setStep('myAnswered')
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : '提交失败')
