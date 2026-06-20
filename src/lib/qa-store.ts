@@ -169,27 +169,45 @@ export async function getAnswers(): Promise<QAAnswer[]> {
   } catch { return [] }
 }
 
-export async function submitMyAnswer(qid: string, myAnswer: string, myNickname: string): Promise<QAAnswer> {
+export async function submitAnswer(
+  qid: string, answer: string, nickname: string, role: 'owner' | 'invitee'
+): Promise<QAAnswer> {
   const existing = await restGet(`/qa_answers?select=*&question_id=eq.${qid}`)
+  const isOwner = role === 'owner'
+
   if (existing?.length > 0) {
     const row = existing[0]
     const id = row.id
-    // Fill the empty side
-    if (!row.my_answer) {
-      await restPatch(`/qa_answers?id=eq.${id}`, { my_answer: myAnswer, my_nickname: myNickname })
+    if (isOwner) {
+      await restPatch(`/qa_answers?id=eq.${id}`, { my_answer: answer, my_nickname: nickname })
     } else {
-      await restPatch(`/qa_answers?id=eq.${id}`, { partner_answer: myAnswer, partner_nickname: myNickname, answered_at: new Date().toISOString() })
+      await restPatch(`/qa_answers?id=eq.${id}`, {
+        partner_answer: answer, partner_nickname: nickname,
+        answered_at: new Date().toISOString(),
+      })
     }
     const updated = await restGet(`/qa_answers?id=eq.${id}`)
     return mapAnswer(updated[0])
   }
+
   const question = await restGet(`/qa_questions?id=eq.${qid}`)
-  const data = await restPost('/qa_answers', {
+  const body: any = {
     question_id: qid, question: question?.[0]?.question || '', category: question?.[0]?.category || '',
-    my_answer: myAnswer, my_nickname: myNickname,
-  })
+  }
+  if (isOwner) {
+    body.my_answer = answer
+    body.my_nickname = nickname
+  } else {
+    body.partner_answer = answer
+    body.partner_nickname = nickname
+  }
+  const data = await restPost('/qa_answers', body)
   return mapAnswer(data[0])
 }
+
+// Legacy alias for backward compat
+export const submitMyAnswer = (qid: string, answer: string, nickname: string, role?: string) =>
+  submitAnswer(qid, answer, nickname, (role as 'owner' | 'invitee') || 'owner')
 
 export async function submitPartnerAnswer(qid: string, partnerAnswer: string, partnerNickname: string): Promise<QAAnswer> {
   const existing = await restGet(`/qa_answers?select=id&question_id=eq.${qid}`)
@@ -217,16 +235,24 @@ export async function getAnsweredQAHistory(): Promise<QAAnswer[]> {
   return withAny
 }
 
-export async function getPendingForMe(): Promise<QAAnswer[]> {
+export async function getPendingForMe(role: 'owner' | 'invitee'): Promise<QAAnswer[]> {
   const all = await getAnswers()
-  // Partner answered, I haven't (my_answer is empty, partner_answer has value)
-  return all.filter((a) => !a.myAnswer && a.partnerAnswer)
+  // Owner: waiting when invitee answered but owner hasn't → partner_answer filled, my_answer empty
+  // Invitee: waiting when owner answered but invitee hasn't → my_answer filled, partner_answer empty
+  if (role === 'owner') {
+    return all.filter((a) => a.partnerAnswer && !a.myAnswer)
+  } else {
+    return all.filter((a) => a.myAnswer && !a.partnerAnswer)
+  }
 }
 
-export async function getWaitingForPartner(): Promise<QAAnswer[]> {
+export async function getWaitingForPartner(role: 'owner' | 'invitee'): Promise<QAAnswer[]> {
   const all = await getAnswers()
-  // I answered, partner hasn't (my_answer has value, partner_answer empty)
-  return all.filter((a) => a.myAnswer && !a.partnerAnswer)
+  if (role === 'owner') {
+    return all.filter((a) => a.myAnswer && !a.partnerAnswer)
+  } else {
+    return all.filter((a) => a.partnerAnswer && !a.myAnswer)
+  }
 }
 
 // ===== Helpers =====

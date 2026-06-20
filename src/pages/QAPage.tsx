@@ -51,7 +51,8 @@ export function QAPage() {
     setCategories(cats)
     setHistory(hist)
     if (cats.length > 0 && !cats.includes(addCategory)) setAddCategory(cats[0])
-    const [pending, waiting] = await Promise.all([getPendingForMe(), getWaitingForPartner()])
+    const role = user?.role || 'owner'
+    const [pending, waiting] = await Promise.all([getPendingForMe(role), getWaitingForPartner(role)])
     setPendingForMe(pending)
     setWaitingForPartner(waiting)
   }, [addCategory])
@@ -94,7 +95,7 @@ export function QAPage() {
     if (!html.trim() || html === '<p></p>') return
     setSubmitError('')
     try {
-      const answer = await submitMyAnswer(currentQuestion.id, html, user?.nickname || '')
+      const answer = await submitMyAnswer(currentQuestion.id, html, user?.nickname || '', user?.role)
       setCurrentAnswer(answer)
       setDataVersion((v) => v + 1)
       setStep('myAnswered')

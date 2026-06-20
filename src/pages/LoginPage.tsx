@@ -17,13 +17,18 @@ export function LoginPage() {
       return
     }
     setLoading(true)
-    const result = await loginUser(email, password)
-    setLoading(false)
-    if (result.error) {
-      setError(result.error)
-      return
+    try {
+      const result = await loginUser(email, password)
+      setLoading(false)
+      if (result.error) {
+        setError(result.error)
+        return
+      }
+      navigate('/')
+    } catch (e) {
+      setLoading(false)
+      setError('登录超时，请刷新页面后重试')
     }
-    navigate('/')
   }
 
   return (
