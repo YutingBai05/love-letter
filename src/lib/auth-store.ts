@@ -28,32 +28,37 @@ export async function registerUser(
     const lcEmail = email.toLowerCase().trim()
     const displayNickname = nickname.trim() || lcEmail.split('@')[0]
 
-    console.log('[Register] Starting signup for:', lcEmail)
+    console.log('[Register] REST signup for:', lcEmail)
 
-    const signUpPromise = supabase.auth.signUp({ email: lcEmail, password })
-    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000))
-    const raceResult = await Promise.race([signUpPromise, timeoutPromise])
+    const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/auth/v1/signup`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+      },
+      body: JSON.stringify({ email: lcEmail, password }),
+      signal: AbortSignal.timeout(10000),
+    })
 
-    if (!raceResult) {
-      console.log('[Register] signUp timed out, checking session...')
-      const { data: sessionData } = await supabase.auth.getSession()
-      const sessionUserId = sessionData.session?.user?.id
-      if (sessionUserId) {
-        return getUserFromSession(sessionUserId, lcEmail).then((r) => ({ user: r.user }))
-      }
-      return { user: null, error: '注册超时，请重试' }
-    }
+    const authData = await resp.json()
+    console.log('[Register] REST response:', resp.status)
 
-    const { data: authData, error: authError } = raceResult
-    console.log('[Register] Signup response:', authError ? 'error: ' + authError.message : 'success, userId: ' + authData.user?.id)
-
-    if (authError) {
-      return { user: null, error: authError.message }
+    if (!resp.ok) {
+      const msg = authData.msg || authData.error_description || '注册失败'
+      return { user: null, error: msg }
     }
 
     const userId = authData.user?.id
     if (!userId) {
       return { user: null, error: '注册失败，请重试' }
+    }
+
+    // Persist session
+    if (authData.access_token) {
+      await supabase.auth.setSession({
+        access_token: authData.access_token,
+        refresh_token: authData.refresh_token || '',
+      })
     }
 
     // Build user object immediately (even without profile)
@@ -102,38 +107,41 @@ export async function registerUser(
 export async function loginUser(email: string, password: string): Promise<{ user: AppUser | null; error?: string }> {
   try {
     const lcEmail = email.toLowerCase().trim()
-    console.log('[Login] Starting for:', lcEmail)
+    console.log('[Login] REST login for:', lcEmail)
 
-    // signInWithPassword may hang in some Supabase versions; use race with timeout
-    const signInPromise = supabase.auth.signInWithPassword({ email: lcEmail, password })
-    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000))
+    const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+      },
+      body: JSON.stringify({ email: lcEmail, password }),
+      signal: AbortSignal.timeout(10000),
+    })
 
-    const result = await Promise.race([signInPromise, timeoutPromise])
+    const data = await resp.json()
+    console.log('[Login] REST response:', resp.status)
 
-    if (!result) {
-      // Timeout: check if session was established anyway via onAuthStateChange
-      console.log('[Login] signInWithPassword timed out, checking session...')
-      const { data: sessionData } = await supabase.auth.getSession()
-      const sessionUserId = sessionData.session?.user?.id
-      if (!sessionUserId) return { user: null, error: '登录超时，请重试' }
-      // Session exists despite timeout - proceed
-      return getUserFromSession(sessionUserId, lcEmail)
-    }
-
-    const { data, error } = result
-    console.log('[Login] Signin response:', error ? 'error: ' + error.message : 'success, userId: ' + data.user?.id)
-
-    if (error) {
-      return { user: null, error: error.message === 'Invalid login credentials' ? '邮箱或密码错误' : error.message }
+    if (!resp.ok) {
+      const msg = data.error_description || data.error || '登录失败'
+      return { user: null, error: msg === 'Invalid login credentials' ? '邮箱或密码错误' : msg }
     }
 
     const userId = data.user?.id
     if (!userId) return { user: null, error: '登录失败' }
 
+    // Persist session via SDK so localStorage is updated
+    if (data.access_token) {
+      await supabase.auth.setSession({
+        access_token: data.access_token,
+        refresh_token: data.refresh_token || '',
+      })
+    }
+
     return getUserFromSession(userId, lcEmail)
   } catch (e) {
-    console.error('[Login] Unexpected error:', e)
-    return { user: null, error: e instanceof Error ? e.message : '登录出错' }
+    console.error('[Login] Error:', e)
+    return { user: null, error: e instanceof Error ? e.message : '登录超时，请刷新后重试' }
   }
 }
 
