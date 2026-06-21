@@ -103,19 +103,26 @@ export async function canModifyFolder(folderId: string, userRole: 'owner' | 'inv
 
 export async function getPostcards(): Promise<Postcard[]> {
   const userId = await getUserId()
+  console.log('[Store] getPostcards userId:', userId)
   if (!userId) return []
 
   let partnerId: string | null = null
   try { const p = await restGet(`/profiles?select=paired_with&id=eq.${userId}`); partnerId = p?.[0]?.paired_with || null } catch {}
+  console.log('[Store] getPostcards partnerId:', partnerId)
 
   const filter = partnerId
     ? `author_id=in.(${userId},${partnerId})`
     : `author_id=eq.${userId}`
+  console.log('[Store] getPostcards filter:', filter)
 
   try {
     const data = await restGet(`/postcards?select=*&order=created_at.desc&${filter}`)
+    console.log('[Store] getPostcards result:', data?.length, 'postcards')
     return (data || []).map(mapPostcard)
-  } catch { return [] }
+  } catch (e) {
+    console.error('[Store] getPostcards error:', e)
+    return []
+  }
 }
 
 export async function getPostcardsByFolder(folderId: string): Promise<Postcard[]> {
@@ -130,41 +137,43 @@ export async function savePostcard(data: {
   mood: string
   authorNickname: string
 }): Promise<Postcard> {
-  const sessionPromise = supabase.auth.getSession()
-  const sessionTimeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000))
-  const sessionResult = await Promise.race([sessionPromise, sessionTimeout])
-
-  if (!sessionResult) throw new Error('获取会话超时')
-  const userId = sessionResult.data.session?.user?.id
+  const userId = await getUserId()
   if (!userId) throw new Error('Not logged in')
 
-  console.log('[Store] Saving postcard for user:', userId)
+  console.log('[Store] savePostcard userId:', userId, 'nickname:', data.authorNickname)
 
-  // Convert non-UUID folder IDs to null
   const folderId = data.folderId && /^[0-9a-f]{8}-[0-9a-f]{4}/i.test(data.folderId) ? data.folderId : null
 
-  const insertPromise = supabase.from('postcards').insert({
-    folder_id: folderId,
-    content: data.content,
-    bg_color: data.bgColor,
-    mood: data.mood,
-    author_nickname: data.authorNickname,
-    author_id: userId,
-    read: false,
-  }).select().single()
+  const resp = await fetch(`${REST_URL}/postcards`, {
+    method: 'POST',
+    headers: {
+      apikey: REST_KEY,
+      Authorization: `Bearer ${REST_KEY}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation',
+    },
+    body: JSON.stringify({
+      folder_id: folderId,
+      content: data.content,
+      bg_color: data.bgColor,
+      mood: data.mood,
+      author_nickname: data.authorNickname,
+      author_id: userId,
+      read: false,
+      created_at: new Date().toISOString(),
+    }),
+    signal: AbortSignal.timeout(8000),
+  })
 
-  const insertTimeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000))
-  const insertResult = await Promise.race([insertPromise, insertTimeout])
-
-  if (!insertResult) throw new Error('保存明信片超时，请重试')
-
-  const { data: result, error } = insertResult
-  if (error) {
-    console.error('[Store] savePostcard error:', error.message, error.details, error.hint)
-    throw new Error(error.message)
+  if (!resp.ok) {
+    const err = await resp.text()
+    console.error('[Store] savePostcard REST error:', resp.status, err)
+    throw new Error(`保存失败: ${resp.status}`)
   }
-  console.log('[Store] Postcard saved:', result.id)
-  return mapPostcard(result)
+
+  const result = await resp.json()
+  console.log('[Store] Postcard saved:', result[0]?.id)
+  return mapPostcard(result[0])
 }
 
 export async function getLatestPostcard(folderId?: string): Promise<Postcard | null> {
@@ -230,34 +239,39 @@ export async function saveLetter(data: {
   fontFamily: string
   authorNickname: string
 }): Promise<Letter> {
-  const sessionPromise = supabase.auth.getSession()
-  const sessionTimeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000))
-  const sessionResult = await Promise.race([sessionPromise, sessionTimeout])
-
-  if (!sessionResult) throw new Error('获取会话超时')
-  const userId = sessionResult.data.session?.user?.id
+  const userId = await getUserId()
   if (!userId) throw new Error('Not logged in')
 
   const folderId = data.folderId && /^[0-9a-f]{8}-[0-9a-f]{4}/i.test(data.folderId) ? data.folderId : null
 
-  const insertPromise = supabase.from('letters').insert({
-    folder_id: folderId,
-    content: data.content,
-    paper_template: data.paperTemplate,
-    font_family: data.fontFamily,
-    author_nickname: data.authorNickname,
-    author_id: userId,
-    read: false,
-  }).select().single()
+  const resp = await fetch(`${REST_URL}/letters`, {
+    method: 'POST',
+    headers: {
+      apikey: REST_KEY,
+      Authorization: `Bearer ${REST_KEY}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation',
+    },
+    body: JSON.stringify({
+      folder_id: folderId,
+      content: data.content,
+      paper_template: data.paperTemplate,
+      font_family: data.fontFamily,
+      author_nickname: data.authorNickname,
+      author_id: userId,
+      read: false,
+      created_at: new Date().toISOString(),
+    }),
+    signal: AbortSignal.timeout(8000),
+  })
 
-  const insertTimeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000))
-  const insertResult = await Promise.race([insertPromise, insertTimeout])
+  if (!resp.ok) {
+    const err = await resp.text()
+    throw new Error(`保存失败: ${resp.status}`)
+  }
 
-  if (!insertResult) throw new Error('保存信件超时，请重试')
-
-  const { data: result, error } = insertResult
-  if (error) throw new Error(error.message)
-  return mapLetter(result)
+  const result = await resp.json()
+  return mapLetter(result[0])
 }
 
 export async function getLetterUnreadCount(): Promise<number> {

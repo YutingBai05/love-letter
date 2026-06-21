@@ -98,11 +98,16 @@ export function QAPage() {
       const answer = await submitMyAnswer(currentQuestion.id, html, user?.nickname || '', user?.role)
       setCurrentAnswer(answer)
       setDataVersion((v) => v + 1)
-      setStep('myAnswered')
+      // If both sides now answered → go to revealed; otherwise wait
+      if (answer.myAnswer && answer.partnerAnswer) {
+        setStep('revealed')
+      } else {
+        setStep('myAnswered')
+      }
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : '提交失败')
     }
-  }, [currentQuestion, myEditor, user?.nickname])
+  }, [currentQuestion, myEditor, user?.nickname, user?.role])
 
   const handleSubmitPartnerAnswer = useCallback(async () => {
     if (!currentQuestion) return
@@ -379,9 +384,29 @@ export function QAPage() {
                   {revealPartner && (() => {
                     const configured = getConfiguredProviders()
                     return (
-                      <div className="bg-white/70 rounded-xl border border-warm-beige shadow-sm p-6 text-center space-y-4">
+                      <div className="bg-white/70 rounded-xl border border-warm-beige shadow-sm p-6 space-y-4">
                         <Sparkles className="w-8 h-8 text-gold mx-auto" />
-                        <p className="text-sm text-ink-brown">让 AI 分析你们的回答</p>
+                        <p className="text-sm text-ink-brown text-center">让 AI 分析你们的回答</p>
+                        <details className="text-xs text-warm-gray">
+                          <summary className="cursor-pointer hover:text-ink-brown">查看 Prompt</summary>
+                          <div className="mt-2 p-3 bg-warm-beige/30 rounded whitespace-pre-wrap text-xs leading-relaxed">
+{`[System]
+你是一个感情分析助手。分析情侣对同一个问题的两份回答，用中文输出：
+1) 相似度评分（0-100%）
+2) 两人的差异点
+3) 从回答中看出对方可能希望你注意的事
+4) 一个 follow-up 问题
+格式简洁，每个部分用标题分隔。
+
+[User]
+问题：${currentAnswer.question}
+
+我的回答：${currentAnswer.myAnswer.replace(/<[^>]+>/g, '')}
+
+对方的回答：${currentAnswer.partnerAnswer.replace(/<[^>]+>/g, '')}`}
+                          </div>
+                        </details>
+                        <div className="text-center">
                         {configured.length === 0 ? (
                           <p className="text-xs text-warm-gray">暂无已配置的 AI 提供商，请先去「设置」页面配置 API Key</p>
                         ) : (
