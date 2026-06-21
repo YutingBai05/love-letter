@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { Heart, Mail, Lock, LogIn } from 'lucide-react'
 import { loginUser } from '@/lib/auth-store'
 
@@ -8,7 +8,6 @@ export function LoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const navigate = useNavigate()
 
   const handleLogin = async () => {
     setError('')
@@ -24,7 +23,7 @@ export function LoginPage() {
         setError(result.error)
         return
       }
-      navigate('/')
+      window.location.href = '/'
     } catch (e) {
       setLoading(false)
       setError('登录超时，请刷新页面后重试')

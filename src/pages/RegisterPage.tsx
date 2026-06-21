@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { Heart, Mail, Lock, UserPlus, Key } from 'lucide-react'
 import { registerUser } from '@/lib/auth-store'
 
@@ -11,7 +11,6 @@ export function RegisterPage() {
   const [inviteCode, setInviteCode] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const navigate = useNavigate()
 
   const handleRegister = async () => {
     setError('')
@@ -34,7 +33,7 @@ export function RegisterPage() {
       setError(result.error)
       return
     }
-    navigate('/')
+    window.location.href = '/'
   }
 
   return (
