@@ -265,10 +265,7 @@ export async function saveLetter(data: {
     signal: AbortSignal.timeout(8000),
   })
 
-  if (!resp.ok) {
-    const err = await resp.text()
-    throw new Error(`保存失败: ${resp.status}`)
-  }
+  if (!resp.ok) throw new Error(`保存失败: ${resp.status}`)
 
   const result = await resp.json()
   return mapLetter(result[0])
