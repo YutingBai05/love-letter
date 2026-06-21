@@ -49,6 +49,7 @@ function LetterCard({ letter }: { letter: Letter }) {
 }
 
 function QACard({ answer }: { answer: QAAnswer }) {
+  const [expanded, setExpanded] = useState(false)
   return (
     <div className="rounded-xl p-5 bg-white/70 border border-warm-beige">
       <div className="flex items-center gap-2 mb-2">
@@ -64,19 +65,27 @@ function QACard({ answer }: { answer: QAAnswer }) {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <div className="bg-warm-beige/30 rounded p-3">
           <p className="text-xs text-warm-gray mb-1">{answer.myNickname || '我'}的回答</p>
-          <div className="prose prose-xs max-w-none text-ink-brown line-clamp-3" dangerouslySetInnerHTML={{ __html: answer.myAnswer }} />
+          <div className={`prose prose-xs max-w-none text-ink-brown ${expanded ? '' : 'line-clamp-3'}`}
+            dangerouslySetInnerHTML={{ __html: answer.myAnswer }} />
         </div>
         <div className="bg-warm-beige/30 rounded p-3">
           <p className="text-xs text-warm-gray mb-1">{answer.partnerNickname || '对方'}的回答</p>
-          <div className="prose prose-xs max-w-none text-ink-brown line-clamp-3" dangerouslySetInnerHTML={{ __html: answer.partnerAnswer }} />
+          <div className={`prose prose-xs max-w-none text-ink-brown ${expanded ? '' : 'line-clamp-3'}`}
+            dangerouslySetInnerHTML={{ __html: answer.partnerAnswer }} />
         </div>
       </div>
-      {answer.aiAnalysis && (
-        <details className="mt-3">
-          <summary className="text-xs text-gold cursor-pointer hover:underline">AI 分析</summary>
-          <div className="mt-2 text-xs text-ink-brown whitespace-pre-wrap leading-relaxed bg-gold/5 rounded p-3">{answer.aiAnalysis}</div>
-        </details>
-      )}
+      <div className="mt-2 flex items-center gap-3">
+        <button onClick={() => setExpanded(!expanded)}
+          className="flex items-center gap-0.5 text-xs text-warm-gray hover:text-rose transition-colors">
+          {expanded ? '收起 ▲' : '展开全部 ▼'}
+        </button>
+        {answer.aiAnalysis && (
+          <details className="text-xs">
+            <summary className="text-gold cursor-pointer hover:underline">AI 分析</summary>
+            <div className="mt-1 text-xs text-ink-brown whitespace-pre-wrap leading-relaxed bg-gold/5 rounded p-2">{answer.aiAnalysis}</div>
+          </details>
+        )}
+      </div>
     </div>
   )
 }

@@ -18,6 +18,46 @@ import { getPartner } from '@/lib/auth-store'
 type View = 'answer' | 'history' | 'manage'
 type Step = 'idle' | 'picked' | 'myAnswered' | 'partnerAnswering' | 'revealed' | 'analyzed'
 
+function HistoryCard({ answer }: { answer: QAAnswer }) {
+  const [expanded, setExpanded] = useState(false)
+  return (
+    <div className="relative">
+      <div className="absolute -left-[25px] top-2 w-3 h-3 rounded-full bg-rose" />
+      <div className="bg-white/70 rounded-xl border border-warm-beige shadow-sm p-4">
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-xs text-rose font-medium">{answer.category}</span>
+          <span className="text-xs text-warm-gray">{new Date(answer.createdAt).toLocaleDateString('zh-CN')}</span>
+        </div>
+        <p className="text-sm font-medium text-ink-brown mb-3">{answer.question}</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div className="bg-warm-beige/30 rounded p-3">
+            <p className="text-xs text-warm-gray mb-1">{answer.myNickname || '我'}的回答</p>
+            <div className={`prose prose-xs max-w-none text-ink-brown ${expanded ? '' : 'line-clamp-3'}`}
+              dangerouslySetInnerHTML={{ __html: answer.myAnswer }} />
+          </div>
+          <div className="bg-warm-beige/30 rounded p-3">
+            <p className="text-xs text-warm-gray mb-1">{answer.partnerNickname || '对方'}的回答</p>
+            <div className={`prose prose-xs max-w-none text-ink-brown ${expanded ? '' : 'line-clamp-3'}`}
+              dangerouslySetInnerHTML={{ __html: answer.partnerAnswer }} />
+          </div>
+        </div>
+        <div className="mt-2 flex items-center gap-3">
+          <button onClick={() => setExpanded(!expanded)}
+            className="flex items-center gap-0.5 text-xs text-warm-gray hover:text-rose transition-colors">
+            {expanded ? '收起 ▲' : '展开全部 ▼'}
+          </button>
+          {answer.aiAnalysis && (
+            <details className="text-xs">
+              <summary className="text-gold cursor-pointer hover:underline">AI 分析</summary>
+              <div className="mt-1 text-xs text-ink-brown whitespace-pre-wrap leading-relaxed bg-gold/5 rounded p-2">{answer.aiAnalysis}</div>
+            </details>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function QAPage() {
   const { user } = useAuth()
   const [view, setView] = useState<View>('answer')
@@ -493,32 +533,7 @@ export function QAPage() {
           ) : (
             <div className="relative pl-6 border-l-2 border-warm-beige space-y-5">
               {history.map((a) => (
-                <div key={a.id} className="relative">
-                  <div className="absolute -left-[25px] top-2 w-3 h-3 rounded-full bg-rose" />
-                  <div className="bg-white/70 rounded-xl border border-warm-beige shadow-sm p-4">
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="text-xs text-rose font-medium">{a.category}</span>
-                      <span className="text-xs text-warm-gray">{new Date(a.createdAt).toLocaleDateString('zh-CN')}</span>
-                    </div>
-                    <p className="text-sm font-medium text-ink-brown mb-3">{a.question}</p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      <div className="bg-warm-beige/30 rounded p-3">
-                        <p className="text-xs text-warm-gray mb-1">{a.myNickname || '我'}的回答</p>
-                        <div className="prose prose-xs max-w-none text-ink-brown line-clamp-3" dangerouslySetInnerHTML={{ __html: a.myAnswer }} />
-                      </div>
-                      <div className="bg-warm-beige/30 rounded p-3">
-                        <p className="text-xs text-warm-gray mb-1">{a.partnerNickname || '对方'}的回答</p>
-                        <div className="prose prose-xs max-w-none text-ink-brown line-clamp-3" dangerouslySetInnerHTML={{ __html: a.partnerAnswer }} />
-                      </div>
-                    </div>
-                    {a.aiAnalysis && (
-                      <details className="mt-3">
-                        <summary className="text-xs text-gold cursor-pointer hover:underline">查看 AI 分析</summary>
-                        <div className="mt-2 text-xs text-ink-brown whitespace-pre-wrap leading-relaxed bg-gold/5 rounded p-3">{a.aiAnalysis}</div>
-                      </details>
-                    )}
-                  </div>
-                </div>
+                <HistoryCard key={a.id} answer={a} />
               ))}
             </div>
           )}
