@@ -125,25 +125,34 @@ export function QAPage() {
     }
   }, [currentQuestion, partnerEditor])
 
-  const handleAnalyze = useCallback(async (provider: AIProvider) => {
+  const [systemPrompt, setSystemPrompt] = useState(
+    '你是一个感情分析助手。分析情侣对同一个问题的两份回答，用中文输出：\n1) 相似度评分（0-100%）\n2) 两人的差异点\n3) 从回答中看出对方可能希望你注意的事\n4) 一个 follow-up 问题\n格式简洁，每个部分用标题分隔。'
+  )
+
+  const buildUserPrompt = useCallback(() => {
+    if (!currentAnswer) return ''
+    return `问题：${currentAnswer.question}\n\n我的回答：${currentAnswer.myAnswer.replace(/<[^>]+>/g, '')}\n\n对方的回答：${currentAnswer.partnerAnswer.replace(/<[^>]+>/g, '')}`
+  }, [currentAnswer])
+
+  const handleAnalyze = useCallback(async (provider: AIProvider, customSystemPrompt?: string) => {
     if (!currentAnswer) return
     setAnalyzing(true)
     const key = getAIKey(provider)
     const model = getAIModel(provider)
     const endpoint = getAIEndpoint(provider, model)
 
-    const systemPrompt = '你是一个感情分析助手。分析情侣对同一个问题的两份回答，用中文输出：1) 相似度评分（0-100%）2) 两人的差异点 3) 从回答中看出对方可能希望你注意的事 4) 一个 follow-up 问题。格式简洁，每个部分用标题分隔。'
-    const userContent = `问题：${currentAnswer.question}\n\n我的回答：${currentAnswer.myAnswer.replace(/<[^>]+>/g, '')}\n\n对方的回答：${currentAnswer.partnerAnswer.replace(/<[^>]+>/g, '')}`
+    const sysPrompt = customSystemPrompt || systemPrompt
+    const userContent = buildUserPrompt()
 
     try {
       let body: string, headers: Record<string, string>, url = endpoint
       if (provider === 'gemini') {
         url = `${url}?key=${encodeURIComponent(key)}`
         headers = { 'Content-Type': 'application/json' }
-        body = JSON.stringify({ systemInstruction: { parts: [{ text: systemPrompt }] }, contents: [{ role: 'user', parts: [{ text: userContent }] }] })
+        body = JSON.stringify({ systemInstruction: { parts: [{ text: sysPrompt }] }, contents: [{ role: 'user', parts: [{ text: userContent }] }] })
       } else {
         headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` }
-        body = JSON.stringify({ model, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userContent }] })
+        body = JSON.stringify({ model, messages: [{ role: 'system', content: sysPrompt }, { role: 'user', content: userContent }] })
       }
 
       const resp = await fetch(url, { method: 'POST', headers, body })
@@ -158,7 +167,7 @@ export function QAPage() {
     }
     setStep('analyzed')
     setAnalyzing(false)
-  }, [currentAnswer])
+  }, [currentAnswer, systemPrompt, buildUserPrompt])
 
   const handleAddQuestion = async () => {
     if (!newQuestion.trim() || !addCategory) return
@@ -383,36 +392,36 @@ export function QAPage() {
 
                   {revealPartner && (() => {
                     const configured = getConfiguredProviders()
+                    const userPrompt = buildUserPrompt()
                     return (
-                      <div className="bg-white/70 rounded-xl border border-warm-beige shadow-sm p-6 space-y-4">
-                        <Sparkles className="w-8 h-8 text-gold mx-auto" />
-                        <p className="text-sm text-ink-brown text-center">让 AI 分析你们的回答</p>
-                        <details className="text-xs text-warm-gray">
-                          <summary className="cursor-pointer hover:text-ink-brown">查看 Prompt</summary>
-                          <div className="mt-2 p-3 bg-warm-beige/30 rounded whitespace-pre-wrap text-xs leading-relaxed">
-{`[System]
-你是一个感情分析助手。分析情侣对同一个问题的两份回答，用中文输出：
-1) 相似度评分（0-100%）
-2) 两人的差异点
-3) 从回答中看出对方可能希望你注意的事
-4) 一个 follow-up 问题
-格式简洁，每个部分用标题分隔。
+                      <div className="bg-white/70 rounded-xl border border-warm-beige shadow-sm p-5 space-y-3">
+                        <Sparkles className="w-6 h-6 text-gold mx-auto" />
+                        <p className="text-sm text-ink-brown text-center font-medium">AI 分析</p>
 
-[User]
-问题：${currentAnswer.question}
+                        {/* System prompt - editable */}
+                        <div>
+                          <label className="text-xs text-warm-gray">System Prompt（可修改）</label>
+                          <textarea
+                            value={systemPrompt}
+                            onChange={(e) => setSystemPrompt(e.target.value)}
+                            rows={4}
+                            className="w-full mt-1 px-3 py-2 rounded-lg border border-warm-beige bg-white text-xs leading-relaxed focus:outline-none focus:border-rose resize-none"
+                          />
+                        </div>
 
-我的回答：${currentAnswer.myAnswer.replace(/<[^>]+>/g, '')}
-
-对方的回答：${currentAnswer.partnerAnswer.replace(/<[^>]+>/g, '')}`}
-                          </div>
+                        {/* User prompt - read only */}
+                        <details className="text-xs">
+                          <summary className="text-warm-gray cursor-pointer hover:text-ink-brown">查看 User Prompt</summary>
+                          <pre className="mt-1 p-2 bg-warm-beige/30 rounded text-xs whitespace-pre-wrap">{userPrompt}</pre>
                         </details>
-                        <div className="text-center">
+
+                        {/* AI buttons */}
                         {configured.length === 0 ? (
-                          <p className="text-xs text-warm-gray">暂无已配置的 AI 提供商，请先去「设置」页面配置 API Key</p>
+                          <p className="text-xs text-warm-gray text-center">暂无已配置的 AI 提供商，请先去「设置」页面配置 API Key</p>
                         ) : (
-                          <div className="flex gap-2 justify-center">
+                          <div className="flex gap-2 justify-center flex-wrap">
                             {configured.map((p) => (
-                              <button key={p} onClick={() => handleAnalyze(p)} disabled={analyzing}
+                              <button key={p} onClick={() => handleAnalyze(p, systemPrompt)} disabled={analyzing}
                                 className="px-4 py-2 rounded-lg bg-gold text-white text-sm font-medium disabled:opacity-50 hover:bg-gold/90 transition-colors">
                                 {analyzing ? '分析中...' : `用 ${getProviderLabel(p)} 分析`}
                               </button>
@@ -425,7 +434,11 @@ export function QAPage() {
                 </div>
               )}
 
-              {step === 'analyzed' && currentAnswer && (
+              {/* ANALYZED: show result + editable prompt for re-call */}
+              {step === 'analyzed' && currentAnswer && (() => {
+                const configured = getConfiguredProviders()
+                const userPrompt = buildUserPrompt()
+                return (
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="bg-white/70 rounded-xl border border-warm-beige shadow-sm p-4">
@@ -441,10 +454,32 @@ export function QAPage() {
                     <div className="flex items-center gap-2 mb-3"><Sparkles className="w-5 h-5 text-gold" /><h3 className="text-sm font-medium text-ink-brown">AI 分析结果</h3></div>
                     <div className="prose prose-sm max-w-none text-ink-brown whitespace-pre-wrap leading-relaxed">{aiText}</div>
                   </div>
-                  <button onClick={() => { setStep('idle'); setCurrentQuestion(null); setCurrentAnswer(null); setRevealPartner(false); setAiText(''); setSubmitError('') }}
+
+                  {/* Editable prompt + re-analyze */}
+                  <div className="bg-white/70 rounded-xl border border-warm-beige shadow-sm p-4 space-y-3">
+                    <p className="text-xs font-medium text-ink-brown">修改 Prompt 重新分析</p>
+                    <textarea
+                      value={systemPrompt}
+                      onChange={(e) => setSystemPrompt(e.target.value)}
+                      rows={3}
+                      className="w-full px-3 py-2 rounded-lg border border-warm-beige bg-white text-xs leading-relaxed focus:outline-none focus:border-rose resize-none"
+                    />
+                    {configured.length > 0 && (
+                      <div className="flex gap-2 flex-wrap">
+                        {configured.map((p) => (
+                          <button key={p} onClick={() => handleAnalyze(p, systemPrompt)} disabled={analyzing}
+                            className="px-3 py-1.5 rounded-lg bg-gold text-white text-xs font-medium disabled:opacity-50 hover:bg-gold/90 transition-colors">
+                            {analyzing ? '分析中...' : `用 ${getProviderLabel(p)} 重新分析`}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <button onClick={() => { setStep('idle'); setCurrentQuestion(null); setCurrentAnswer(null); setRevealPartner(false); setAiText(''); setSubmitError(''); setSystemPrompt('你是一个感情分析助手。分析情侣对同一个问题的两份回答，用中文输出：\n1) 相似度评分（0-100%）\n2) 两人的差异点\n3) 从回答中看出对方可能希望你注意的事\n4) 一个 follow-up 问题\n格式简洁，每个部分用标题分隔。') }}
                     className="w-full py-3 rounded-lg border border-rose text-rose text-sm hover:bg-rose/5 transition-colors">再来一题</button>
                 </div>
-              )}
+              )})()}
             </>
           )}
         </div>
